@@ -16,8 +16,12 @@ logging:
 # Tema: Co-criatividade Humano–IA
 search:
   source: "arxiv"
-  query: "(agentic OR \"multi-agent\" OR autonomous) (RAG OR retrieval) (creativity OR art OR poetry OR co-creation OR design OR music)"
-  max_results: 5
-  days_back: 365
+  query: >
+    (agentic OR "autonomous agents" OR "multi-agent")
+    AND (RAG OR retrieval)
+    AND (memory OR "episodic memory" OR "long-term memory")
+    AND (tools OR "tool use" OR "function calling" OR orchestration)
+  max_results: 8
+  days_back: 540
 
-thermometer_thresholds: { N1_max: 7, N2_max
+thermometer_thresholds: { N1_max: 7, N2_max: 13, N3_max: 18 }
