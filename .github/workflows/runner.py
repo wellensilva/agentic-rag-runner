@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 import json, time, argparse, pathlib, urllib.parse
-import feedparser
 
 def save_json(path, data):
     path.parent.mkdir(exist_ok=True, parents=True)
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 def search_arxiv(query, n=3):
+    try:
+        import feedparser  # só é carregado se realmente for usar
+    except ImportError:
+        raise RuntimeError("feedparser não instalado (use Solução B ou rode o modo demo).")
     base = "http://export.arxiv.org/api/query"
     q = urllib.parse.quote(query)
     url = f"{base}?search_query=all:{q}&start=0&max_results={n}&sortBy=lastUpdatedDate&sortOrder=descending"
@@ -25,12 +28,10 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--task", default="demo")
     p.add_argument("--query", default="")
-    p.add_argument("--max_results", type=int, default=3)
+    p.add_argument("--max_results", type=int, default=5)
     args = p.parse_args()
 
-    logs_dir = pathlib.Path("logs")
-    logs_dir.mkdir(exist_ok=True)
-
+    logs = pathlib.Path("logs"); logs.mkdir(exist_ok=True)
     summary = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "task": args.task,
@@ -42,7 +43,7 @@ def main():
     try:
         if args.task == "papers" and args.query:
             summary["results"] = search_arxiv(args.query, args.max_results)
-        else:
+        else:  # DEMO sem dependências
             summary["results"] = [
                 {"title": "Agentic RAG: memória e cadeias de ferramentas (demo)", "score": 0.91},
                 {"title": "Memória hierárquica para agentes (demo)", "score": 0.88},
@@ -51,7 +52,7 @@ def main():
     except Exception as e:
         summary["error"] = str(e)
 
-    save_json(logs_dir / "run_summary.json", summary)
+    save_json(logs / "run_summary.json", summary)
     print(f"[OK] logs/run_summary.json gerado com {len(summary['results'])} itens.")
 
 if __name__ == "__main__":
