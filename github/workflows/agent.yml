@@ -1,0 +1,47 @@
+name: agentic-rag (config)
+
+on:
+  workflow_dispatch:  # você pode rodar manualmente se quiser
+  push:
+    paths:
+      - config.json          # qualquer edição no config dispara
+      - runner.py
+      - requirements.txt
+      - .github/workflows/agent.yml
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+            pip install -r requirements.txt
+
+      - name: Run using config.json
+        run: |
+          python - <<'PY'
+          import json, subprocess, sys
+          # lê config
+          cfg = json.load(open('config.json'))
+          args = ['python','runner.py','--task', cfg.get('task','papers')]
+          if 'query' in cfg: args += ['--query', cfg['query']]
+          if 'max_results' in cfg: args += ['--max_results', str(cfg['max_results'])]
+          print(">>> Running:", " ".join(args))
+          subprocess.run(args, check=True)
+          PY
+
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: out/run_summary.json
+          if-no-files-found: error
