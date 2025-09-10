@@ -1,5 +1,5 @@
 # runner.py
-import argparse, json, os, time, pathlib
+import argparse, json, time, pathlib
 
 LOG_DIR = pathlib.Path("logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -17,7 +17,7 @@ def run_demo(max_results):
     return items
 
 def run_papers(query, max_results):
-    import feedparser  # instalado pelo workflow
+    import feedparser
     q = query or "agentic RAG memory tool use 2024 arXiv"
     url = f"https://export.arxiv.org/api/query?search_query=all:{q}&start=0&max_results={max_results}"
     feed = feedparser.parse(url)
