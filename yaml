@@ -1,52 +1,9 @@
-name: agentic-rag
-
+name: policy
 on:
-  # permite rodar manualmente e passar parâmetros pela interface do Actions
-  workflow_dispatch:
-    inputs:
-      task:
-        description: "Tarefa: demo ou papers"
-        required: false
-        default: "demo"
-      query:
-        description: "Consulta (usada quando task=papers)"
-        required: false
-        default: "agentic rag memory tools"
-      max_results:
-        description: "Quantidade de resultados (número)"
-        required: false
-        default: "3"
-  # opcional: roda automaticamente quando esses arquivos mudarem
-  push:
-    paths:
-      - "runner.py"
-      - ".github/workflows/agentic-rag.yml"
-
+  workflow_dispatch: {}
 jobs:
-  run:
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Instalar dependências (somente para papers)
-        if: ${{ github.event.inputs.task == 'papers' }}
-        run: pip install --disable-pip-version-check --no-cache-dir feedparser
-
-      - name: Executar runner
-        run: |
-          python runner.py \
-            --task "${{ github.event.inputs.task || 'demo' }}" \
-            --query "${{ github.event.inputs.query || 'agentic rag memory tools' }}" \
-            --max_results ${{ github.event.inputs.max_results || 3 }}
-
-      - name: Anexar logs
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs
-          path: logs/
+      - name: Placeholder
+        run: echo "policy workflow ok"
