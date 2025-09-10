@@ -1,0 +1,23 @@
+# policy.yaml — Política mínima (N2–N3)
+autonomy: N2-3
+gates: [plano, finalizacao]
+limits: { steps_max: 5, timebox_min: 20 }
+safety: { require_sources: true, fail_closed: true, kill_switch: "PAUSAR AGORA" }
+memory:
+  durable_write: false
+  ttl_required: true
+  storage_path: "memory.json"
+chain: { log_steps: true, rollback_required: true }
+logging:
+  dir: "logs"
+  file_prefix: "run"
+  keep_fields: [plan, actions, sources, diffs]
+
+# Tema: Co-criatividade Humano–IA
+search:
+  source: "arxiv"
+  query: "(agentic OR \"multi-agent\" OR autonomous) (RAG OR retrieval) (creativity OR art OR poetry OR co-creation OR design OR music)"
+  max_results: 5
+  days_back: 365
+
+thermometer_thresholds: { N1_max: 7, N2_max
