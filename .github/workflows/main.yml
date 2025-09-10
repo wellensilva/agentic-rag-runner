@@ -1,0 +1,20 @@
+name: agentic-rag
+on:
+  schedule:
+    - cron: "0 12 * * 1"  # roda toda segunda às 12h UTC
+  workflow_dispatch:
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests pyyaml feedparser
+      - run: python runner.py --task agentic_rag --max_results 5
+      - name: Salvar logs como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: logs/
