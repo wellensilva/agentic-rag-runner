@@ -9,16 +9,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Install deps
-        run: pip install --disable-pip-version-check --no-cache-dir feedparser
+        run: pip install --disable-pip-version-check --no-cache-dir -r requirements.txt
+
       - name: Run papers
         run: |
           python runner.py --task papers \
             --query "agentic RAG memory tool use 2024 arXiv" \
             --max_results 15
+
       - name: Verify output
         run: |
           test -f logs/run_summary.json && echo "OK" || (echo "ERRO: sem run_summary.json" && exit 1)
+
+      - name: Show summary (log)
+        run: |
+          echo "----- run_summary.json -----"
+          cat logs/run_summary.json
+
       - name: Upload logs
         uses: actions/upload-artifact@v4
         with:
