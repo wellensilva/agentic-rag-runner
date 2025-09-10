@@ -1,49 +1,43 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# runner.py
+import argparse, json, os, time, pathlib
 
-"""
-Runner simples para:
-- task=demo: gera resultados fictícios (sem dependências)
-- task=papers: busca no arXiv via feedparser (se instalado)
-Salva logs em logs/run_summary.json
-"""
+LOG_DIR = pathlib.Path("logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+OUT = LOG_DIR / "run_summary.json"
 
-import json, time, argparse, pathlib, urllib.parse, sys
+def save(obj):
+    OUT.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
 
-def save_json(path, data):
-    path.parent.mkdir(exist_ok=True, parents=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+def run_demo(max_results):
+    items = [
+        {"title": "Agentic RAG: memória + cadeia de ferramentas (demo)", "score": 0.91},
+        {"title": "Memória hierárquica para agentes (demo)", "score": 0.88},
+        {"title": "Planejamento com ferramentas (demo)", "score": 0.85},
+    ][:max_results]
+    return items
 
-def search_arxiv(query, n=3):
-    try:
-        import feedparser  # import lazy: só carrega se necessário
-    except Exception as e:
-        raise RuntimeError("feedparser não instalado. Rode task=demo ou instale feedparser.") from e
-
-    base = "http://export.arxiv.org/api/query"
-    q = urllib.parse.quote(query)
-    url = f"{base}?search_query=all:{q}&start=0&max_results={n}&sortBy=lastUpdatedDate&sortOrder=descending"
+def run_papers(query, max_results):
+    import feedparser  # instalado pelo workflow
+    q = query or "agentic RAG memory tool use 2024 arXiv"
+    url = f"https://export.arxiv.org/api/query?search_query=all:{q}&start=0&max_results={max_results}"
     feed = feedparser.parse(url)
-
     items = []
-    for e in feed.entries[:n]:
+    for e in feed.entries:
         items.append({
-            "title": getattr(e, "title", "").strip(),
-            "link": getattr(e, "link", ""),
-            "published": getattr(e, "published", ""),
-            "summary": (getattr(e, "summary", "") or "").strip()[:600]
+            "title": e.get("title", "").strip(),
+            "link": e.get("id", ""),
+            "published": e.get("published", ""),
+            "summary": e.get("summary", "").strip(),
+            "authors": [a.get("name","") for a in e.get("authors", [])],
         })
     return items
 
-def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--task", default="demo")              # demo | papers
-    p.add_argument("--query", default="")
-    p.add_argument("--max_results", type=int, default=3)
-    args = p.parse_args()
-
-    logs_dir = pathlib.Path("logs")
-    logs_dir.mkdir(exist_ok=True)
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--task", default="demo", choices=["demo","papers"])
+    ap.add_argument("--query", default="")
+    ap.add_argument("--max_results", type=int, default=5)
+    args = ap.parse_args()
 
     summary = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -54,26 +48,12 @@ def main():
         "note": ""
     }
 
-    try:
-        if args.task == "papers" and args.query:
-            summary["results"] = search_arxiv(args.query, args.max_results)
-            summary["note"] = "Busca no arXiv concluída."
-        else:
-            # Modo DEMO sem dependências externas
-            demo = [
-                {"title": "Agentic RAG: memória + cadeia de ferramentas (demo)", "score": 0.91},
-                {"title": "Memória hierárquica para agentes (demo)", "score": 0.88},
-                {"title": "Planejamento com ferramentas (demo)", "score": 0.85},
-            ][: max(1, args.max_results)]
-            summary["results"] = demo
-            summary["note"] = "Modo demo (sem internet/dependências)."
-    except Exception as e:
-        summary["error"] = f"{type(e).__name__}: {e}"
+    if args.task == "papers":
+        summary["results"] = run_papers(args.query, args.max_results)
+        summary["note"] = "Busca no arXiv concluída."
+    else:
+        summary["results"] = run_demo(args.max_results)
+        summary["note"] = "Modo demo (sem internet/dependências)."
 
-    save_json(logs_dir / "run_summary.json", summary)
-    print(f"[OK] logs/run_summary.json gerado com {len(summary['results'])} itens.")
-    if "error" in summary:
-        print(f"[WARN] {summary['error']}", file=sys.stderr)
-
-if __name__ == "__main__":
-    main()
+    save(summary)
+    print(f"OK → {OUT}")
