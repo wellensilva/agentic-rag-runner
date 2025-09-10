@@ -10,7 +10,6 @@ def main():
     logs = pathlib.Path("logs")
     logs.mkdir(exist_ok=True)
 
-    # Demo sem internet: simula 3 resultados
     results = [
         {"title": "Agentic RAG: memória e cadeias de ferramentas (demo)", "score": 0.91},
         {"title": "Memória hierárquica para agentes (demo)", "score": 0.88},
