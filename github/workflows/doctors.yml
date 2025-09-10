@@ -1,0 +1,57 @@
+name: doctor
+on:
+  workflow_dispatch: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Show repo/branch and files
+        run: |
+          echo "Branch: $GITHUB_REF_NAME"
+          git rev-parse HEAD
+          echo "---- repo root ----"
+          ls -la
+          echo "---- workflows ----"
+          ls -la .github/workflows || true
+
+      - name: Print runner signature
+        run: |
+          echo "----- runner.py (first 60 lines) -----"
+          head -n 60 runner.py || echo "runner.py NOT FOUND"
+          echo "----- grep task choices -----"
+          (grep -n 'choices=\["demo","papers"\]' runner.py && true) || echo "choices line NOT FOUND"
+
+      - name: Python sees runner?
+        run: |
+          python - <<'PY'
+          try:
+            import runner
+            print("runner module path:", runner.__file__)
+          except Exception as e:
+            print("IMPORT ERROR:", e)
+          PY
+
+      - name: Install deps (feedparser)
+        run: pip install --disable-pip-version-check --no-cache-dir feedparser
+
+      - name: Force papers run
+        run: |
+          python runner.py --task papers --query "agentic RAG memory tool use 2024 arXiv" --max_results 5
+
+      - name: Show summary
+        run: |
+          echo "----- logs/run_summary.json -----"
+          cat logs/run_summary.json || (echo "No logs/run_summary.json"; ls -R)
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: logs/
+          if-no-files-found: warn
