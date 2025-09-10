@@ -1,6 +1,6 @@
 name: agentic-rag
 on:
-  workflow_dispatch:      # rodar manual
+  workflow_dispatch:      # rodar manualmente
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -9,8 +9,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Instalar deps
-        run: pip install requests pyyaml feedparser
       - name: Executar runner
         run: python runner.py --task demo --max_results 5
       - name: Anexar logs
