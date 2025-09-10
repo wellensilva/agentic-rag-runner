@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-# runner.py — Agentic RAG (N2–N3) com fallback de policy e sumário .md
+# runner.py — Agentic RAG (N2–N3) com fallback de policy, resumo .md e CSV
 # Requisitos: requests, pyyaml, feedparser
-# (o workflow já instala; se rodar local: pip install requests pyyaml feedparser)
 
-import os, sys, json, re, argparse, datetime
+import os, sys, json, re, argparse, datetime, csv
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Any
 import yaml, requests, feedparser
 
-# -------- util --------
 def now_iso():
     return datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
@@ -23,7 +21,6 @@ def save_jsonl(path, rows):
 
 def sanitize(t): return re.sub(r"\s+", " ", (t or "")).strip()
 
-# -------- nível sugerido (termômetro) --------
 @dataclass
 class ThermometerScore:
     R:int; I:int; C:int; F:int; M:int; K:int
@@ -35,7 +32,6 @@ def decide_level(score, th):
     if tot <= th.get("N2_max", 13): return "N2"
     return "N3"
 
-# -------- policy loader robusto --------
 def default_policy():
     return {
         "logging": {"dir": "logs", "file_prefix": "run"},
@@ -50,7 +46,6 @@ def default_policy():
     }
 
 def load_policy(p_hint: str):
-    # tenta vários caminhos e extensões
     candidates = [
         Path(p_hint) if p_hint else Path("policy.yaml"),
         Path("policy.yaml"),
@@ -61,15 +56,12 @@ def load_policy(p_hint: str):
     for c in candidates:
         if c.exists():
             return yaml.safe_load(c.read_text(encoding="utf-8"))
-    # fallback mínimo
     return default_policy()
 
-# -------- arXiv retrieval --------
 def arxiv_search(query, max_results=5, days_back=365):
     base = "http://export.arxiv.org/api/query"
     url = (f"{base}?search_query=all:{requests.utils.quote(query)}"
            f"&start=0&max_results={max_results*3}&sortBy=submittedDate&sortOrder=descending")
-    # usa requests com User-Agent pra evitar 403
     ua = {"User-Agent": "agentic-rag-runner/1.0 (+github actions)"}
     r = requests.get(url, headers=ua, timeout=45)
     r.raise_for_status()
@@ -117,24 +109,38 @@ def cite_id(url):
     m = re.search(r"arxiv\.org\/abs\/([\d\.v]+)", url or "")
     return m.group(1) if m else url
 
-# -------- resumo humano (.md) --------
 def write_summary_md(out):
     lines = [
-        f"# Agentic RAG — {out['run_id']}\n",
-        f"**Nível sugerido:** {out['level']}\n",
-        f"**IDs citados:** {', '.join(r['id'] for r in out['results'])}\n\n",
-        "## Artigos\n",
+        f"# Agentic RAG — {out['run_id']}\\n",
+        f"**Nível sugerido:** {out['level']}\\n",
+        f"**IDs citados:** {', '.join(r['id'] for r in out['results'])}\\n\\n",
+        "## Artigos\\n",
     ]
     for i, r in enumerate(out["results"], 1):
-        lines.append(f"### {i}. {r['title']}\n")
-        lines.append(f"- arXiv: {r['id']}  \n- Atualizado: {r['updated']}\n")
+        lines.append(f"### {i}. {r['title']}\\n")
+        lines.append(f"- arXiv: {r['id']}  \\n- Atualizado: {r['updated']}\\n")
         for b in r["bullets"]:
-            lines.append(f"  - {b}\n")
-        lines.append("\n")
+            lines.append(f"  - {b}\\n")
+        lines.append("\\n")
     ensure_dir("outputs")
-    Path("outputs/summary.md").write_text("\n".join(lines), encoding="utf-8")
+    Path("outputs/summary.md").write_text("\\n".join(lines), encoding="utf-8")
 
-# -------- agente principal --------
+import csv
+def write_csv(out):
+    ensure_dir("outputs")
+    path = Path("outputs/articles.csv")
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["title","arxiv_id","updated","tags","bullet1","bullet2","bullet3","bullet4","bullet5"])
+        for r in out["results"]:
+            text = " ".join(r["bullets"]).lower()
+            tags = []
+            if any(k in text for k in ["memory","long-term","episodic"]): tags.append("memory")
+            if any(k in text for k in ["tool","function calling","toolformer","orchestration"]): tags.append("tools")
+            if any(k in text for k in ["plan","planning","reflect","reflection","critic","multi-agent"]): tags.append("orchestration")
+            bs = r["bullets"] + [""]*5
+            w.writerow([r["title"], r["id"], r["updated"], "|".join(tags)] + bs[:5])
+
 def run_agentic_rag(policy, args):
     log_dir = policy["logging"]["dir"]; ensure_dir(log_dir)
     run_id = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
@@ -154,7 +160,6 @@ def run_agentic_rag(policy, args):
     }
     save_jsonl(log_path, [{"ts": now_iso(), "event": "plan", "data": plan}])
 
-    # parâmetros vindos de args ou policy
     q = args.query or policy["search"]["query"]
     maxr = int(args.max_results or policy["search"]["max_results"])
     days = int(args.days_back or policy["search"]["days_back"])
@@ -190,13 +195,12 @@ def run_agentic_rag(policy, args):
     out = {"run_id": run_id, "level": level, "score": asdict(score),
            "results": results, "reflection": reflection, "log_path": log_path}
 
-    # sumário humano
     write_summary_md(out)
+    write_csv(out)
 
     print(json.dumps(out, ensure_ascii=False, indent=2))
     return out
 
-# -------- CLI --------
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--policy", default="policy.yaml")
@@ -206,7 +210,6 @@ def main():
     ap.add_argument("--days_back", default=None)
     args = ap.parse_args()
 
-    # kill switch via variável de ambiente
     if os.environ.get("KILL_SWITCH", "").strip().upper() == "PAUSAR AGORA":
         print("Kill-switch acionado."); sys.exit(1)
 
