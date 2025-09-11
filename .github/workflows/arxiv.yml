@@ -1,0 +1,56 @@
+name: arXiv (standalone)
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "Busca"
+        required: false
+        default: "agentic RAG long-term memory 2024 arXiv"
+      max_results:
+        description: "Resultados"
+        required: false
+        default: "12"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Buscar no arXiv (sem dependências)
+        run: |
+          python - <<'PY'
+          import urllib.parse, urllib.request, xml.etree.ElementTree as ET, json, pathlib, os
+          q  = os.getenv('INPUT_QUERY') or "agentic RAG long-term memory 2024 arXiv"
+          mr = int(os.getenv('INPUT_MAX_RESULTS') or "12")
+          url = f"https://export.arxiv.org/api/query?search_query=all:{urllib.parse.quote(q)}&start=0&max_results={mr}"
+          data = urllib.request.urlopen(url).read()
+          ns = {'a':'http://www.w3.org/2005/Atom'}
+          root = ET.fromstring(data)
+          items = []
+          for e in root.findall('a:entry', ns):
+              items.append({
+                "title": (e.find('a:title', ns).text or '').strip(),
+                "link":  (e.find('a:id', ns).text or '').strip(),
+                "published": (e.find('a:published', ns).text or '').strip(),
+                "summary": (e.find('a:summary', ns).text or '').strip(),
+                "authors": [a.text.strip() for a in e.findall('a:author/a:name', ns) if a.text],
+              })
+          outdir = pathlib.Path("logs"); outdir.mkdir(parents=True, exist_ok=True)
+          (outdir/"run_summary.json").write_text(
+              json.dumps({"task":"papers","query":q,"max_results":mr,"results":items,
+                          "note":"Busca direta na API do arXiv (standalone)."},
+                         ensure_ascii=False, indent=2), encoding="utf-8")
+          print("OK; wrote logs/run_summary.json with", len(items), "results")
+          PY
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: logs/run_summary.json
+          if-no-files-found: error
