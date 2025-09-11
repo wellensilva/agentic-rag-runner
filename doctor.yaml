@@ -1,0 +1,11 @@
+name: Doctor Workflow
+on: push
+jobs:
+  run-doctor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run Doctor Script
+        run: |
+          # Aqui você coloca o comando que executa o arquivo "doctor"
+          ./doctor
