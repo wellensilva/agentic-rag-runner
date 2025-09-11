@@ -1,25 +1,24 @@
-name: Doctor
+name: agentic-rag
 
 on:
   workflow_dispatch:
     inputs:
       task:
-        description: "Qual tarefa? (demo, papers)"
+        description: "O que rodar (stub_v3 | papers | demo)"
         required: true
-        default: "papers"
+        default: "stub_v3"
+      profile:
+        description: "Perfil/Preferências (ex.: default | whatsapp_acolhedor)"
+        required: false
+        default: "default"
       query:
-        description: "Busca (para papers)"
+        description: "Pergunta/consulta (usa nos stubs e em papers)"
         required: false
-        default: "agentic RAG memory tool use 2024 arXiv"
-      max_results:
-        description: "Máximo de resultados"
-        required: false
-        default: "3"
+        default: ""
 
 jobs:
-  doctor:
+  run:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,30 +26,29 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install deps
         run: |
-          pip install -r requirements.txt || true
-          pip install feedparser arxiv || true
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install feedparser pyyaml beautifulsoup4 requests tenacity
 
-      - name: Run task
+      - name: Executar runner
         env:
-          TASK: ${{ github.event.inputs.task }}
-          QUERY: ${{ github.event.inputs.query }}
-          MAX_RESULTS: ${{ github.event.inputs.max_results }}
+          TASK: ${{ inputs.task }}
+          PROFILE: ${{ inputs.profile }}
+          QUERY: ${{ inputs.query }}
         run: |
-          mkdir -p logs
-          if [ -z "$TASK" ]; then TASK="papers"; fi
-          if [ "$TASK" = "papers" ]; then
-            python runner.py --task papers --query "$QUERY" --max_results ${MAX_RESULTS:-3} || true
-          else
-            python runner.py --task "$TASK" || true
-          fi
+          set -e
+          python runner.py --task "$TASK" --profile "$PROFILE" --query "$QUERY"
 
-      - name: Upload logs
+      - name: Anexar artefatos
         uses: actions/upload-artifact@v4
         with:
-          name: logs
-          path: logs
+          name: agent-test-results
+          path: |
+            outputs/**
+            logs/**
+            *.json
           if-no-files-found: warn
