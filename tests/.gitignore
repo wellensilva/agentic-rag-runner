@@ -1,0 +1,3 @@
+# não versionar artefatos e zips
+*.zip
+agent-test-results*/
