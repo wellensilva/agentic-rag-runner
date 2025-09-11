@@ -1,27 +1,35 @@
-name: papers (quick run)
+name: papers
+
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+
 jobs:
   run:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Instalar dependência
-        run: pip install --disable-pip-version-check --no-cache-dir feedparser
-      - name: Executar busca no arXiv
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run agentic RAG (papers)
         run: |
           python runner.py --task papers \
-            --query "agentic rag memory tools" \
-            --max_results 3
-      - name: Verificar saída
-        run: |
-          test -f logs/run_summary.json && echo "OK: logs/run_summary.json encontrado." || (echo "ERRO: logs/run_summary.json não foi gerado." && exit 1)
-      - name: Anexar logs
+            --query "agentic rag memory tool-use arXiv autonomous agents" \
+            --max_results 8
+
+      - name: Upload outputs
         uses: actions/upload-artifact@v4
         with:
-          name: logs
-          path: logs/
-          if-no-files-found: error
+          name: agentic-rag-output
+          path: output/*
+          if-no-files-found: ignore
