@@ -1,0 +1,110 @@
+name: arXiv → memory
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Ex.: agentic RAG memory toolchain'
+        required: true
+        default: 'agentic RAG memory toolchain'
+      max_results:
+        description: 'Quantos papers buscar'
+        required: false
+        default: '5'
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install feedparser requests beautifulsoup4
+
+      - name: Buscar arXiv e gravar na memória
+        env:
+          QUERY: ${{ github.event.inputs.query }}
+          MAXR: ${{ github.event.inputs.max_results }}
+        run: |
+          python - <<'PY'
+          import os, json, time, sqlite3, urllib.parse
+          from pathlib import Path
+          import feedparser
+
+          q = os.environ.get("QUERY", "agentic RAG memory toolchain")
+          max_results = int(os.environ.get("MAXR", "5"))
+
+          # 1) Buscar no arXiv (API Atom)
+          url = f"https://export.arxiv.org/api/query?search_query=all:{urllib.parse.quote(q)}&start=0&max_results={max_results}"
+          feed = feedparser.parse(url)
+
+          Path("logs").mkdir(exist_ok=True)
+          entries = []
+          for e in feed.entries:
+              entries.append({
+                  "id": e.get("id",""),
+                  "title": (e.get("title") or "").strip().replace("\n"," "),
+                  "summary": (e.get("summary") or "").strip().replace("\n"," "),
+                  "authors": [a.name for a in e.get("authors",[])],
+                  "link": e.get("link",""),
+                  "published": e.get("published","")
+              })
+
+          # 2) Salvar um snapshot dos papers buscados
+          Path("logs/arxiv.json").write_text(
+              json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+
+          # 3) Gravar na base de memória (SQLite)
+          db = sqlite3.connect("memory_store.sqlite")
+          cur = db.cursor()
+          cur.execute("""
+              CREATE TABLE IF NOT EXISTS memories (
+                id TEXT PRIMARY KEY,
+                topic TEXT,
+                content TEXT,
+                source TEXT,
+                meta TEXT,
+                created_at REAL
+              )
+          """)
+          db.commit()
+
+          topic = f"arXiv:{q}"
+          now = time.time()
+
+          for item in entries:
+              mem_id = (item["id"].split("/")[-1] or str(now))
+              content = f"{item['title']} — {item['summary']}"
+              meta = json.dumps({
+                  "authors": item["authors"],
+                  "link": item["link"],
+                  "published": item["published"]
+              }, ensure_ascii=False)
+              cur.execute("""
+                INSERT OR REPLACE INTO memories (id, topic, content, source, meta, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+              """, (mem_id, topic, content, "arxiv", meta, now))
+
+          db.commit()
+          # 4) Resumo rápido só com IDs/títulos para conferência
+          digest = [{"id": (e["id"].split("/")[-1]), "title": e["title"]} for e in entries]
+          Path("logs/ingest_summary.json").write_text(
+              json.dumps(digest, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+          db.close()
+          PY
+
+      - name: Upload de artefatos
+        uses: actions/upload-artifact@v4
+        with:
+          name: arxiv-to-memory
+          path: |
+            logs/arxiv.json
+            logs/ingest_summary.json
+            memory_store.sqlite
