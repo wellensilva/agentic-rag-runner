@@ -4,40 +4,41 @@ on:
   workflow_dispatch:
     inputs:
       query:
-        description: 'Consulta arXiv'
-        default: '(agentic OR "AI agents") AND (RAG OR "retrieval-augmented") AND (memory OR "tool chain" OR workflow)'
-        required: true
+        description: "Consulta arXiv"
+        required: false
+        default: '("agentic RAG" OR "tool use") AND memory'
       max_results:
-        description: 'Quantidade de artigos'
-        default: '5'
-        required: true
+        description: "Qtd de artigos"
+        required: false
+        default: '10'
+      time_range:
+        description: "Intervalo (ex: 2023-2025)"
+        required: false
+        default: '2023-2025'
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Instalar dependências
+      - name: Instalar deps
         run: |
-          pip install -r requirements.txt
-
-      - name: Executar runner (arxiv)
-        env:
-          QUERY: ${{ github.event.inputs.query }}
-          MAX_RESULTS: ${{ github.event.inputs.max_results }}
+          python -m pip install --upgrade pip
+          pip install feedparser arxiv
+      - name: Executar runner (papers)
         run: |
-          python runner.py --task arxiv --query "$QUERY" --max_results "$MAX_RESULTS"
-
-      - name: Anexar resultados
+          python runner.py \
+            --task papers \
+            --query "${{ inputs.query }}" \
+            --max_results "${{ inputs.max_results }}" \
+            --time_range "${{ inputs.time_range }}"
+      - name: Anexar artefatos
         uses: actions/upload-artifact@v4
         with:
-          name: arxiv_results
-          path: arxiv_results.json
-          if-no-files-found: warn
+          name: arxiv_papers
+          path: |
+            run_summary.json
+            logs.txt
