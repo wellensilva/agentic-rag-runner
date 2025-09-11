@@ -13,13 +13,12 @@ jobs:
           from memory_store import connect, upsert_memory
           from agent_playbook import run_objective
           con = connect()
-          upsert_memory(con, "A biblioteca viva guarda memórias em nós e relações em arestas.")
+          upsert_memory(con, "A biblioteca viva guarda memórias em nós e arestas.")
           upsert_memory(con, "Cadeia de ferramentas registra experiências para reuso.")
           upsert_memory(con, "Curadoria ativa decide assimilar ou acomodar novas entradas.")
-          out = run_objective("Quero recuperar memórias sobre curadoria e ferramentas")
+          out = run_objective("Quero memórias sobre curadoria e ferramentas")
           import json, pathlib; pathlib.Path("logs").mkdir(exist_ok=True)
           pathlib.Path("logs/run_summary.json").write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
-          print("OK")
           PY
       - uses: actions/upload-artifact@v4
         with:
