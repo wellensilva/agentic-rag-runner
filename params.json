@@ -1,0 +1,5 @@
+{
+  "task": "papers",
+  "query": "(agentic OR \"AI agents\") AND (RAG OR \"retrieval-augmented\") AND (memory OR \"tool chain\" OR workflow)",
+  "max_results": 5
+}
