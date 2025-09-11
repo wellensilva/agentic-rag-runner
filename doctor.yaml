@@ -1,0 +1,56 @@
+name: Doctor
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Qual tarefa? (demo, papers)"
+        required: true
+        default: "papers"
+      query:
+        description: "Busca (para papers)"
+        required: false
+        default: "agentic RAG memory tool use 2024 arXiv"
+      max_results:
+        description: "Máximo de resultados"
+        required: false
+        default: "3"
+
+jobs:
+  doctor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt || true
+          pip install feedparser arxiv || true
+
+      - name: Run task
+        env:
+          TASK: ${{ github.event.inputs.task }}
+          QUERY: ${{ github.event.inputs.query }}
+          MAX_RESULTS: ${{ github.event.inputs.max_results }}
+        run: |
+          mkdir -p logs
+          if [ -z "$TASK" ]; then TASK="papers"; fi
+          if [ "$TASK" = "papers" ]; then
+            python runner.py --task papers --query "$QUERY" --max_results ${MAX_RESULTS:-3} || true
+          else
+            python runner.py --task "$TASK" || true
+          fi
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: logs
+          if-no-files-found: warn
