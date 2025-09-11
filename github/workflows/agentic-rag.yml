@@ -36,6 +36,8 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,6 +54,9 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           # deps comuns usados pelos runners/stubs
           pip install feedparser pyyaml beautifulsoup4 requests tenacity
+          python -V
+          python -c "import sys; print('site-packages:', next(p for p in sys.path if p.endswith('site-packages')))"
+          python -c "import pkgutil; print('deps:', [m.name for m in pkgutil.iter_modules() if m.name in ('feedparser','pyyaml','bs4','requests','tenacity')])"
 
       - name: Run runner.py
         env:
@@ -60,7 +65,11 @@ jobs:
           QUERY:   ${{ inputs.query }}
         run: |
           set -e
-          echo "TASK=$TASK PROFILE=$PROFILE QUERY=$QUERY"
+          echo "::group::Contexto"
+          echo "TASK=$TASK"
+          echo "PROFILE=$PROFILE"
+          echo "QUERY=$QUERY"
+          echo "::endgroup::"
           python runner.py --task "$TASK" --profile "$PROFILE" --query "$QUERY"
 
       - name: Upload artifacts
@@ -73,3 +82,4 @@ jobs:
             state/**
             *.json
           if-no-files-found: warn
+          retention-days: 14
