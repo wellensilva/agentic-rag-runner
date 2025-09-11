@@ -1,0 +1,102 @@
+name: agent-tests-v2
+
+on:
+  workflow_dispatch:
+    inputs:
+      which:
+        description: "Qual stub rodar"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - gem
+          - edit
+          - active
+      keep_state:
+        description: "Estado (state/) entre execuções"
+        required: true
+        default: "keep"
+        type: choice
+        options:
+          - keep
+          - reset
+      profile:
+        description: "Perfil/Preferências (opcional)"
+        required: true
+        default: "default"
+        type: choice
+        options:
+          - default
+          - whatsapp_acolhedor
+          - email_formal
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-tests-v2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reset state (opcional)
+        if: ${{ inputs.keep_state == 'reset' }}
+        run: |
+          rm -rf state || true
+          mkdir -p state
+          echo "{}" > state/.keep.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install feedparser pyyaml beautifulsoup4 requests tenacity
+
+      - name: Rodar GEM (v2)
+        if: ${{ inputs.which == 'gem' || inputs.which == 'all' }}
+        env:
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          echo ">> GEM-RAG v2 (PROFILE=$PROFILE)"
+          python tests/gem_rag_stub_v2.py
+
+      - name: Rodar Editable Memory (v2)
+        if: ${{ inputs.which == 'edit' || inputs.which == 'all' }}
+        env:
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          echo ">> Editable-Memory v2 (PROFILE=$PROFILE)"
+          python tests/editable_memory_stub_v2.py
+
+      - name: Rodar Active RAG (v2)
+        if: ${{ inputs.which == 'active' || inputs.which == 'all' }}
+        env:
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          echo ">> Active-RAG v2 (PROFILE=$PROFILE)"
+          python tests/active_rag_stub_v2.py
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-test-results-v2
+          path: |
+            *.json
+            state/**
+            logs/**
+            outputs/**
+          if-no-files-found: warn
+          retention-days: 14
