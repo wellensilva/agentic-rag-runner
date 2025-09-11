@@ -1,0 +1,42 @@
+name: agent-tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      which:
+        description: 'Qual stub rodar (gem|edit|active|all)'
+        required: true
+        default: 'all'
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Executar stubs
+        run: |
+          set -e
+          mkdir -p logs
+          echo "Rodando: ${{ github.event.inputs.which }}"
+          if [ "${{ github.event.inputs.which }}" = "gem" ] || [ "${{ github.event.inputs.which }}" = "all" ]; then
+            python tests/gem_rag_stub.py
+          fi
+          if [ "${{ github.event.inputs.which }}" = "edit" ] || [ "${{ github.event.inputs.which }}" = "all" ]; then
+            python tests/editable_memory_stub.py
+          fi
+          if [ "${{ github.event.inputs.which }}" = "active" ] || [ "${{ github.event.inputs.which }}" = "all" ]; then
+            python tests/active_rag_stub.py
+          fi
+
+      - name: Artefatos
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-test-results
+          path: |
+            logs/**
+            *_summary.json
+          if-no-files-found: warn
