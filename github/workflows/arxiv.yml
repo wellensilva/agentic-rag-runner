@@ -4,52 +4,40 @@ on:
   workflow_dispatch:
     inputs:
       query:
-        description: "Busca"
-        required: false
-        default: "agentic RAG memory tool use 2024"
+        description: 'Consulta arXiv'
+        default: '(agentic OR "AI agents") AND (RAG OR "retrieval-augmented") AND (memory OR "tool chain" OR workflow)'
+        required: true
       max_results:
-        description: "Máximo de resultados"
-        required: false
-        default: "15"
+        description: 'Quantidade de artigos'
+        default: '5'
+        required: true
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Buscar no arXiv (sem dependências)
+      - name: Instalar dependências
         run: |
-          python - <<'PY'
-          import urllib.parse, urllib.request, xml.etree.ElementTree as ET, json, pathlib, os
-          q  = os.getenv('INPUT_QUERY') or "agentic RAG memory tool use 2024"
-          mr = int(os.getenv('INPUT_MAX_RESULTS') or "15")
-          url = f"https://export.arxiv.org/api/query?search_query=all:{urllib.parse.quote(q)}&start=0&max_results={mr}"
-          data = urllib.request.urlopen(url).read()
-          ns = {'a':'http://www.w3.org/2005/Atom'}
-          root = ET.fromstring(data)
-          items = []
-          for e in root.findall('a:entry', ns):
-              items.append({
-                "title": (e.find('a:title', ns).text or '').strip(),
-                "link":  (e.find('a:id', ns).text or '').strip(),
-                "published": (e.find('a:published', ns).text or '').strip(),
-                "summary": (e.find('a:summary', ns).text or '').strip(),
-                "authors": [a.text.strip() for a in e.findall('a:author/a:name', ns) if a.text],
-              })
-          outdir = pathlib.Path("logs"); outdir.mkdir(parents=True, exist_ok=True)
-          out = {"task":"papers","query":q,"max_results":mr,"results":items,
-                 "note":"Busca direta na API do arXiv (standalone)."}
-          (outdir/"run_summary.json").write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
-          print("OK; wrote logs/run_summary.json with", len(items), "results")
-          PY
+          pip install -r requirements.txt
 
-      - name: Upload logs
+      - name: Executar runner (arxiv)
+        env:
+          QUERY: ${{ github.event.inputs.query }}
+          MAX_RESULTS: ${{ github.event.inputs.max_results }}
+        run: |
+          python runner.py --task arxiv --query "$QUERY" --max_results "$MAX_RESULTS"
+
+      - name: Anexar resultados
         uses: actions/upload-artifact@v4
         with:
-          name: logs
-          path: logs/run_summary.json
-          if-no-files-found: error
+          name: arxiv_results
+          path: arxiv_results.json
+          if-no-files-found: warn
