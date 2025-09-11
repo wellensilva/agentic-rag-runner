@@ -1,0 +1,5 @@
+{
+  "task": "papers",
+  "query": "agentic RAG OR agentic retrieval augmented generation OR agent-based RAG memory tool use",
+  "max_results": 5
+}
