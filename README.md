@@ -1,14 +1,22 @@
-# Agentic RAG Runner (N2–N3)
-Pronto para rodar no **GitHub Actions** via celular.
+# Agentic RAG Runner — memória + ferramentas (Nível 2–3)
 
-## Como usar
-1. Suba estes arquivos na raiz do repositório:
-   - `runner.py`
-   - `policy.yaml`
-   - `.github/workflows/main.yml`
-2. Vá em **Actions → agentic-rag → Run workflow**.
-3. Ao terminar, baixe **Artifacts**: `logs/` (jsonl) e `outputs/` (`summary.md` + `articles.csv`).
+Pequeno laboratório para **agente com RAG, memória editável e cadeia de ferramentas**, rodando em **GitHub Actions** (funciona bem no celular).
 
-## Ajustes rápidos
-- A query está focada em **memória** e **ferramentas**. Ajuste em `policy.yaml`.
-- *Kill-switch*: defina `KILL_SWITCH="PAUSAR AGORA"` nas variáveis do job para abortar.
+## Como executar
+
+1. Vá em **Actions → agentic-rag → Run workflow**  
+2. Preencha os inputs:
+   - **task**: `stub_v3` (demonstra memória) ou `papers` (busca no arXiv)
+   - **profile**: `default`, `whatsapp_acolhedor` ou `email_formal`
+   - **query**: texto livre (usado em `papers` e como pergunta no `stub_v3`)
+3. Depois do run, baixe **Artifacts → agent-test-results** para ver:
+   - `outputs/…` (resultados em JSON/MD)
+   - `logs/runner.log`
+   - `state/…` (memórias/KB)
+
+## Fluxos de trabalho inclusos
+
+- **agentic-rag** — execução principal (stubs/papers/demo)  
+- **agent-tests-v2** — diagnóstico (lista arquivos, checa imports, roda testes rápidos)
+
+## Pastas
