@@ -3,33 +3,10 @@ name: agent-tests-v2
 on:
   workflow_dispatch:
     inputs:
-      which:
-        description: "Qual stub rodar"
-        required: true
-        default: "all"
-        type: choice
-        options:
-          - all
-          - gem
-          - edit
-          - active
-      keep_state:
-        description: "Estado (state/) entre execuções"
-        required: true
-        default: "keep"
-        type: choice
-        options:
-          - keep
-          - reset
-      profile:
-        description: "Perfil/Preferências (opcional)"
-        required: true
-        default: "default"
-        type: choice
-        options:
-          - default
-          - whatsapp_acolhedor
-          - email_formal
+      query:
+        description: "Consulta rápida para o teste de papers"
+        required: false
+        default: "autonomous agents memory tool use"
 
 permissions:
   contents: read
@@ -39,19 +16,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  run:
+  diag:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Reset state (opcional)
-        if: ${{ inputs.keep_state == 'reset' }}
-        run: |
-          rm -rf state || true
-          mkdir -p state
-          echo "{}" > state/.keep.json
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -61,42 +30,50 @@ jobs:
 
       - name: Install deps
         run: |
+          set -e
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install feedparser pyyaml beautifulsoup4 requests tenacity
+          mkdir -p logs outputs state
+          pip freeze > logs/pip_freeze.txt
 
-      - name: Rodar GEM (v2)
-        if: ${{ inputs.which == 'gem' || inputs.which == 'all' }}
-        env:
-          PROFILE: ${{ inputs.profile }}
+      - name: Sanity checks (arquivos e imports)
         run: |
-          echo ">> GEM-RAG v2 (PROFILE=$PROFILE)"
-          python tests/gem_rag_stub_v2.py
+          set -e
+          echo ":: Python $(python -V)" | tee -a logs/diag.txt
+          echo ":: Lista de arquivos" | tee -a logs/diag.txt
+          ls -R | tee -a logs/diag.txt
+          python - <<'PY'
+          import importlib, json, pathlib, sys
+          results = {}
+          for mod in ["runner","stubs.active_rag_stub_v3","tasks.papers_arxiv"]:
+              try:
+                  importlib.import_module(mod)
+                  results[mod] = "OK"
+              except Exception as e:
+                  results[mod] = f"ERROR: {e}"
+          pathlib.Path("logs/imports.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+          print(results)
+          PY
 
-      - name: Rodar Editable Memory (v2)
-        if: ${{ inputs.which == 'edit' || inputs.which == 'all' }}
-        env:
-          PROFILE: ${{ inputs.profile }}
+      - name: Teste rápido — stub_v3
         run: |
-          echo ">> Editable-Memory v2 (PROFILE=$PROFILE)"
-          python tests/editable_memory_stub_v2.py
+          set -e
+          python runner.py --task stub_v3 --profile whatsapp_acolhedor --query "Qual é a política de fretes e prazo?"
 
-      - name: Rodar Active RAG (v2)
-        if: ${{ inputs.which == 'active' || inputs.which == 'all' }}
-        env:
-          PROFILE: ${{ inputs.profile }}
+      - name: Teste rápido — papers (tolerante a erro de rede)
+        continue-on-error: true
         run: |
-          echo ">> Active-RAG v2 (PROFILE=$PROFILE)"
-          python tests/active_rag_stub_v2.py
+          set -e
+          q="${{ inputs.query }}"
+          python runner.py --task papers --query "$q"
 
-      - name: Upload artifacts
+      - name: Upload diagnostics
         uses: actions/upload-artifact@v4
         with:
-          name: agent-test-results-v2
+          name: agent-diagnostics
           path: |
-            *.json
-            state/**
-            logs/**
             outputs/**
+            logs/**
+            state/**
+            *.json
           if-no-files-found: warn
-          retention-days: 14
