@@ -1,1 +1,28 @@
+name: quick-stub-whatsapp
+on: { workflow_dispatch: {} }
 
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: "pip" }
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          [ -f requirements.txt ] && pip install -r requirements.txt
+          pip install feedparser pyyaml beautifulsoup4 requests tenacity
+      - name: Run stub_v3 (WhatsApp acolhedor)
+        run: |
+          python runner.py --task stub_v3 --profile whatsapp_acolhedor --query "Qual é a política de fretes e prazo?"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-test-results
+          path: |
+            outputs/**
+            logs/**
+            state/**
+            *.json
+          if-no-files-found: warn
