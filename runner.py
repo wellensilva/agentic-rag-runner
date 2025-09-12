@@ -1,59 +1,62 @@
-# runner.py
-import argparse, json, time, pathlib
+import os, json, argparse, datetime, pathlib, sys, traceback
 
-LOG_DIR = pathlib.Path("logs")
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-OUT = LOG_DIR / "run_summary.json"
+ROOT = pathlib.Path(".").resolve()
+OUT_DIR = ROOT / "outputs"
+LOG_DIR = ROOT / "logs"
+STATE_DIR = ROOT / "state"
+for p in (OUT_DIR, LOG_DIR, STATE_DIR):
+    p.mkdir(parents=True, exist_ok=True)
 
-def save(obj):
-    OUT.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+def log(msg):
+    ts = datetime.datetime.utcnow().isoformat()
+    line = f"[{ts}] {msg}"
+    print(line)
+    with open(LOG_DIR / "runner.log", "a", encoding="utf-8") as f:
+        f.write(line + "\n")
 
-def run_demo(max_results):
-    items = [
-        {"title": "Agentic RAG: memória + cadeia de ferramentas (demo)", "score": 0.91},
-        {"title": "Memória hierárquica para agentes (demo)", "score": 0.88},
-        {"title": "Planejamento com ferramentas (demo)", "score": 0.85},
-    ][:max_results]
-    return items
+def save_json(obj, path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=2)
 
-def run_papers(query, max_results):
-    import feedparser
-    q = query or "agentic RAG memory tool use 2024 arXiv"
-    url = f"https://export.arxiv.org/api/query?search_query=all:{q}&start=0&max_results={max_results}"
-    feed = feedparser.parse(url)
-    items = []
-    for e in feed.entries:
-        items.append({
-            "title": e.get("title", "").strip(),
-            "link": e.get("id", ""),
-            "published": e.get("published", ""),
-            "summary": e.get("summary", "").strip(),
-            "authors": [a.get("name","") for a in e.get("authors", [])],
-        })
-    return items
+def run_stub_v3(profile, query):
+    from stubs.active_rag_stub_v3 import run as run_stub
+    return run_stub(profile=profile, query=query or "Qual é a política de fretes e prazo?")
+
+def run_papers(profile, query):
+    from tasks.papers_arxiv import run as run_papers
+    q = query or "autonomous agents memory tool use"
+    return run_papers(query=q, max_results=5)
+
+def run_demo(profile, query):
+    return {"demo": "ok", "profile": profile, "query": query}
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--task", default=os.getenv("TASK", "stub_v3"))
+    parser.add_argument("--profile", default=os.getenv("PROFILE", "default"))
+    parser.add_argument("--query", default=os.getenv("QUERY", ""))
+    args = parser.parse_args()
+
+    log(f"starting task={args.task} profile={args.profile}")
+
+    try:
+        if args.task == "stub_v3":
+            res = run_stub_v3(args.profile, args.query)
+        elif args.task == "papers":
+            res = run_papers(args.profile, args.query)
+        else:
+            res = run_demo(args.profile, args.query)
+
+        stamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        outpath = OUT_DIR / f"result-{args.task}-{stamp}.json"
+        save_json(res, outpath)
+        log(f"wrote {outpath}")
+    except Exception as e:
+        err = {"error": str(e), "traceback": traceback.format_exc()}
+        save_json(err, OUT_DIR / "error.json")
+        log(f"ERROR: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--task", default="demo", choices=["demo","papers"])
-    ap.add_argument("--query", default="")
-    ap.add_argument("--max_results", type=int, default=5)
-    args = ap.parse_args()
-
-    summary = {
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "task": args.task,
-        "query": args.query,
-        "max_results": args.max_results,
-        "results": [],
-        "note": ""
-    }
-
-    if args.task == "papers":
-        summary["results"] = run_papers(args.query, args.max_results)
-        summary["note"] = "Busca no arXiv concluída."
-    else:
-        summary["results"] = run_demo(args.max_results)
-        summary["note"] = "Modo demo (sem internet/dependências)."
-
-    save(summary)
-    print(f"OK → {OUT}")
+    main()
