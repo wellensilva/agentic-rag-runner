@@ -1,1 +1,5 @@
-requirements.txt
+feedparser
+requests
+beautifulsoup4
+pyyaml
+tenacity
