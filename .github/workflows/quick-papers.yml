@@ -1,0 +1,75 @@
+name: quick-papers
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "Consulta (ex.: agentic RAG memory tools)"
+        required: true
+        default: "agentic rag memory toolchain"
+      max_results:
+        description: "Quantos resultados (1-15)"
+        required: true
+        default: "5"
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install arxiv beautifulsoup4 pyyaml
+
+      - name: Fetch papers
+        env:
+          Q: ${{ inputs.query }}
+          K: ${{ inputs.max_results }}
+        run: |
+          python - << 'PY'
+          import os, json, pathlib, arxiv, textwrap, datetime
+          q = os.environ.get("Q","agentic rag memory toolchain")
+          k = int(os.environ.get("K","5"))
+          out = pathlib.Path("outputs"); out.mkdir(exist_ok=True, parents=True)
+          rows = []
+          search = arxiv.Search(query=q, max_results=k, sort_by=arxiv.SortCriterion.Relevance)
+          for r in arxiv.Client().results(search):
+              rows.append({
+                "title": r.title,
+                "authors": [a.name for a in r.authors],
+                "published": r.published.date().isoformat(),
+                "pdf_url": r.pdf_url,
+                "abs_url": r.entry_id,
+                "summary": r.summary.strip()
+              })
+          with open(out/"papers.json","w",encoding="utf-8") as f: json.dump(rows, f, ensure_ascii=False, indent=2)
+          # cartões curtos
+          def card(r):
+              t = r["title"]
+              a = ", ".join(r["authors"][:3]) + (" et al." if len(r["authors"])>3 else "")
+              s = textwrap.shorten(r["summary"], width=360, placeholder="…")
+              return f"### {t}\nAutores: {a}\nData: {r['published']}\nPDF: {r['pdf_url']}\nResumo: {s}\n"
+          md = [f"# Cartões de Ação — Papers ({datetime.date.today().isoformat()})",""]
+          md += [card(r) for r in rows]
+          (out/"cards.md").write_text("\n\n".join(md), encoding="utf-8")
+          print(f"Ok: salvos {len(rows)} papers em outputs/")
+          PY
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: quick-papers
+          path: outputs/**
+          if-no-files-found: error
