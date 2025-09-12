@@ -20,3 +20,25 @@ Pequeno laboratório para **agente com RAG, memória editável e cadeia de ferra
 - **agent-tests-v2** — diagnóstico (lista arquivos, checa imports, roda testes rápidos)
 
 ## Pastas
+## Perfis (preferências)
+
+- `default` — email/tom formal (padrão)
+- `whatsapp_acolhedor` — canal WhatsApp e tom acolhedor
+- `email_formal` — força email/tom formal
+
+## Troubleshooting
+
+- **“Expected branch to point to … Pull and try again”**  
+  O app está desatualizado. Descarte a edição e reabra o arquivo (puxe para atualizar) ou crie um novo arquivo via “Add file”.
+
+- **“No event triggers defined in on”**  
+  Falta o bloco `on:` no YAML. Copie exatamente como no exemplo.
+
+- **`ModuleNotFoundError`**  
+  Confirme `requirements.txt` na raiz e a etapa **Install deps** no workflow.
+
+## Roadmap curto
+
+- [ ] Guardar resultados `papers` em `state/` para reuso
+- [ ] Adicionar “ferramenta” de sumarização
+- [ ] Testes automatizados (PyTest leve) e badges
