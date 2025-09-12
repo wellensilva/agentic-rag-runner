@@ -1,0 +1,30 @@
+name: quick-papers-core
+on: { workflow_dispatch: {} }
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: "pip" }
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          [ -f requirements.txt ] && pip install -r requirements.txt
+          pip install feedparser pyyaml beautifulsoup4 requests tenacity
+      - name: Run papers (ASCII query)
+        env:
+          QUERY: agentic AND RAG AND (memory OR "tool use" OR planning)
+        run: |
+          python runner.py --task papers --profile default --query "$QUERY"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-test-results
+          path: |
+            outputs/**
+            logs/**
+            state/**
+            *.json
+          if-no-files-found: warn
