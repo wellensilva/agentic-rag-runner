@@ -77,3 +77,31 @@ Use o workflow **agentic-rag**:
 - **Preferências:** `whatsapp_acolhedor` → respostas saem “no WhatsApp” e com tom acolhedor.
 
 > Este stub é para **diagnóstico e treino** de memória/autonomia controlada (nível 2–3). Não depende de serviços externos.
+# Tarefa `papers_arxiv` — Busca e resumo de artigos (arXiv)
+
+**Objetivo:** buscar artigos no **arXiv** (via RSS/Atom), selecionar os mais relevantes e salvar um **resumo estruturado**.
+
+## Como rodar
+Workflow **agentic-rag**:
+- `task`: `papers`
+- `profile`: qualquer
+- `query`: texto da consulta (ex.: `autonomous agents memory tool use`)
+
+Ou workflow **agent-tests-v2**:
+- Ajuste o input `query` e rode o diagnóstico (ele também chama `papers` de forma leve).
+
+## Saídas
+- `outputs/papers_*.json` — lista com:
+  - `title`, `authors`, `year`, `summary`, `link`, `score`
+- `outputs/papers_*.md` — markdown com os highlights
+- `logs/papers.log` — etapas e eventuais erros de rede
+
+## Como funciona (resumo)
+1. Monta a URL de busca no arXiv e lê o feed (RSS/Atom).
+2. Extrai metadados (título, autores, resumo, link, data).
+3. Aplica um **score simples** por correspondência de termos da `query`.
+4. Salva top-N (padrão 5).
+
+## Limitações
+- O arXiv impõe limites/bursts; se falhar, tente novamente.
+- Os resumos são do próprio feed; sumarização adicional é um passo futuro.
