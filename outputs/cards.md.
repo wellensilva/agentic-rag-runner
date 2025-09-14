@@ -1,0 +1,96 @@
+# tools/generate_cards.py
+# Gera "outputs/cards.md" a partir de "outputs/papers.json" (arXiv)
+# Uso:
+#   python tools/generate_cards.py --input outputs/papers.json --out outputs/cards.md
+import argparse, json, sys, datetime
+from pathlib import Path
+from textwrap import fill
+
+def load_json(path: Path):
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"[warn] não consegui ler {path}: {e}", file=sys.stderr)
+        return None
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input", default="outputs/papers.json")
+    parser.add_argument("--out", default="outputs/cards.md")
+    args = parser.parse_args()
+
+    p_in = Path(args.input)
+    p_out = Path(args.out)
+    p_out.parent.mkdir(parents=True, exist_ok=True)
+
+    data = load_json(p_in)
+    if not data:
+        # não falha o pipeline; apenas avisa e sai 0
+        msg = f"[info] nada a fazer: arquivo não existe ou está vazio: {p_in}"
+        print(msg)
+        p_out.write_text("# Cartões de Ação — (vazio)\n", encoding="utf-8")
+        return 0
+
+    # tentar descobrir a query em outputs/summary.json (opcional)
+    summary = load_json(Path("outputs/summary.json")) or {}
+    query = ""
+    if summary.get("task") == "papers":
+        query = summary.get("query", "") or ""
+
+    today = datetime.date.today().isoformat()
+
+    # Monta o markdown
+    lines = []
+    title = f"# Cartões de Ação — Agentic RAG ({today})"
+    lines.append(title)
+    if query:
+        lines.append(f"> **Query**: `{query}`")
+    lines.append("")
+    lines.append("> Preencha os checkboxes conforme for aplicando em seu runner.")
+    lines.append("")
+
+    # Espera-se uma lista de dicts com: title, authors, date, pdf, abs
+    for idx, it in enumerate(data, start=1):
+        t = it.get("title", "(sem título)").strip()
+        authors = ", ".join(it.get("authors", [])) or "—"
+        date = it.get("date", "—")
+        pdf = it.get("pdf", "")
+        abs_url = it.get("abs", "")
+
+        lines.append(f"## {idx}) {t}")
+        lines.append(f"- **Autores:** {authors}")
+        lines.append(f"- **Data:** {date}")
+        link_bits = []
+        if pdf:
+            link_bits.append(f"[PDF]({pdf})")
+        if abs_url:
+            link_bits.append(f"[arXiv]({abs_url})")
+        if link_bits:
+            lines.append(f"- **Links:** " + " · ".join(link_bits))
+
+        # blocos de ação (templates práticos)
+        lines.append("")
+        lines.append("**Essência (1 linha):**")
+        lines.append("> _Escreva aqui a essência em 1 frase._")
+        lines.append("")
+        lines.append("**Ações sugeridas:**")
+        lines.append("- [ ] Extrair ideias aplicáveis ao *runner* (memória/ferramentas/planejamento)")
+        lines.append("- [ ] Propor um experimento mínimo (ex.: nova ferramenta ou novo passo do ReAct)")
+        lines.append("- [ ] Atualizar `state/memory.json` com 1–2 ‘lições’ (mid memory)")
+        lines.append("- [ ] Registrar follow-up no `outputs/crm_log.json` (se fizer sentido)")
+        lines.append("")
+        lines.append("**Riscos/limites:**")
+        lines.append("- [ ] _Anote trade-offs, viés de avaliação, limitações de dataset etc._")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    md = "\n".join(lines)
+    p_out.write_text(md, encoding="utf-8")
+    print(f"[ok] cartões gerados: {p_out}")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
