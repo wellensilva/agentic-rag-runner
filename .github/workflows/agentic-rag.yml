@@ -16,7 +16,7 @@ on:
         type: choice
         options: [default, whatsapp_acolhedor, email_formal]
       query:
-        description: "Pergunta/consulta (usada em stubs e papers)"
+        description: "Pergunta/consulta (usada em papers e demo)"
         required: false
         default: ""
 
@@ -40,11 +40,11 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-           - name: Install deps
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # deps comuns usados pelos runners/stubs
+          # deps usadas pelo runner
           pip install feedparser pyyaml beautifulsoup4 requests tenacity arxiv
 
       - name: Run runner.py
