@@ -1,107 +1,40 @@
+# Colaborativo IA — API FastAPI
 
-# Agentic RAG Runner — memória + ferramentas (Nível 2–3)
+Este projeto expõe o Orquestrador (pesquisador → sintetizador → executor) via HTTP,
+com memória curta/longa, loop opcional de feedback humano e guardião de segurança.
 
-Pequeno laboratório para **agente com RAG, memória editável e cadeia de ferramentas**, rodando em **GitHub Actions** (funciona bem no celular).
+## 1) Preparar ambiente
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env               # edite OPENAI_API_KEY e (opcional) LLM_MODEL
+```
 
-## Como executar
+## 2) Rodar a API
+```bash
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+```
 
-1. Vá em **Actions → agentic-rag → Run workflow**  
-2. Preencha os inputs:
-   - **task**: `stub_v3` (demonstra memória) ou `papers` (busca no arXiv)
-   - **profile**: `default`, `whatsapp_acolhedor` ou `email_formal`
-   - **query**: texto livre (usado em `papers` e como pergunta no `stub_v3`)
-3. Depois do run, baixe **Artifacts → agent-test-results** para ver:
-   - `outputs/…` (resultados em JSON/MD)
-   - `logs/runner.log`
-   - `state/…` (memórias/KB)
+Acesse a documentação interativa:
+- Swagger UI: http://localhost:8000/docs
+- OpenAPI JSON: http://localhost:8000/openapi.json
 
-## Fluxos de trabalho inclusos
+## 3) Teste rápido
+```bash
+curl -X POST http://localhost:8000/run   -H "Content-Type: application/json"   -d '{"query":"Crie um plano de MVP em 1 página para o projeto Biblioteca Viva.","formato":"texto"}'
+```
 
-- **agentic-rag** — execução principal (stubs/papers/demo)  
-- **agent-tests-v2** — diagnóstico (lista arquivos, checa imports, roda testes rápidos)
+## 4) Fluxo com feedback humano
+- Envie um feedback separado e reaplique no próximo `/run` com o mesmo `request_id`:
 
-## Pastas
-## Perfis (preferências)
+```bash
+curl -X POST http://localhost:8000/feedback   -H "Content-Type: application/json"   -d '{"request_id":"abc123","feedback":"Refinar seção de riscos e incluir cronograma em 3 fases."}'
+curl -X POST http://localhost:8000/run   -H "Content-Type: application/json"   -d '{"query":"Plano de MVP com entregáveis", "formato":"texto","request_id":"abc123","apply_feedback":true}'
+```
 
-- `default` — email/tom formal (padrão)
-- `whatsapp_acolhedor` — canal WhatsApp e tom acolhedor
-- `email_formal` — força email/tom formal
+## 5) Memória longa (opcional)
+Se `chromadb` estiver instalado, os resumos finais são persistidos em `./chroma_store`.
 
-## Troubleshooting
-
-- **“Expected branch to point to … Pull and try again”**  
-  O app está desatualizado. Descarte a edição e reabra o arquivo (puxe para atualizar) ou crie um novo arquivo via “Add file”.
-
-- **“No event triggers defined in on”**  
-  Falta o bloco `on:` no YAML. Copie exatamente como no exemplo.
-
-- **`ModuleNotFoundError`**  
-  Confirme `requirements.txt` na raiz e a etapa **Install deps** no workflow.
-
-## Roadmap curto
-
-- [ ] Guardar resultados `papers` em `state/` para reuso
-- [ ] Adicionar “ferramenta” de sumarização
-- [ ] Testes automatizados (PyTest leve) e badges
-# Stub v3 — Memória + Preferências + Mini-KB com versões
-
-**Objetivo:** demonstrar um agente “didático” com:
-- **Mini base de conhecimento** versionada (v1 → v2 → …) e respostas que seguem a **linha do tempo**.
-- **Memória de preferências** do usuário (canal, tom da mensagem etc.) que podem ser **editadas** em tempo real.
-
-## Como rodar
-Use o workflow **agentic-rag**:
-- `task`: `stub_v3`
-- `profile`: `default` | `whatsapp_acolhedor` | `email_formal`
-- `query`: (opcional) uma pergunta; por padrão usamos “Qual é a política de fretes e prazo?”
-
-## O que ele faz
-1. Carrega/gera uma mini-KB (ex.: política de frete).
-2. **Assimilate**: adiciona uma nova versão (ex.: v1 → v2).
-3. **Accommodate**: ajusta a resposta à nova versão.
-4. **Preferências**: grava/edita canal e tom (ex.: WhatsApp + acolhedor).
-5. Escreve tudo em `outputs/` e estados em `state/`.
-
-## Saídas
-- `outputs/stub_v3_*.json` — respostas passo a passo:
-  - `initial`, `after_assimilation`, `after_accommodation`
-- `state/memory_store.sqlite` (ou `.json`) — preferências salvas
-- `logs/runner.log` — execução
-
-## Exemplos de uso
-- **Pergunta:** “Qual é a política de fretes e prazo?”
-- **Linha do tempo esperada:**
-  - Inicial: frete grátis R$300 / 3–5 dias
-  - Após v1: R$400 / 2–4 dias
-  - Após v2: R$350 / 2–3 dias
-- **Preferências:** `whatsapp_acolhedor` → respostas saem “no WhatsApp” e com tom acolhedor.
-
-> Este stub é para **diagnóstico e treino** de memória/autonomia controlada (nível 2–3). Não depende de serviços externos.
-# Tarefa `papers_arxiv` — Busca e resumo de artigos (arXiv)
-
-**Objetivo:** buscar artigos no **arXiv** (via RSS/Atom), selecionar os mais relevantes e salvar um **resumo estruturado**.
-
-## Como rodar
-Workflow **agentic-rag**:
-- `task`: `papers`
-- `profile`: qualquer
-- `query`: texto da consulta (ex.: `autonomous agents memory tool use`)
-
-Ou workflow **agent-tests-v2**:
-- Ajuste o input `query` e rode o diagnóstico (ele também chama `papers` de forma leve).
-
-## Saídas
-- `outputs/papers_*.json` — lista com:
-  - `title`, `authors`, `year`, `summary`, `link`, `score`
-- `outputs/papers_*.md` — markdown com os highlights
-- `logs/papers.log` — etapas e eventuais erros de rede
-
-## Como funciona (resumo)
-1. Monta a URL de busca no arXiv e lê o feed (RSS/Atom).
-2. Extrai metadados (título, autores, resumo, link, data).
-3. Aplica um **score simples** por correspondência de termos da `query`.
-4. Salva top-N (padrão 5).
-
-## Limitações
-- O arXiv impõe limites/bursts; se falhar, tente novamente.
-- Os resumos são do próprio feed; sumarização adicional é um passo futuro.
+## 6) Segurança
+O `guardian_check` bloqueia conteúdos proibidos por palavras-sinal. Amplie com suas regras.
