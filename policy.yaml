@@ -12,7 +12,6 @@ logging:
   dir: "logs"
   file_prefix: "run"
   keep_fields: [plan, actions, sources, diffs]
-
 # Tema: Co-criatividade Humano–IA
 search:
   source: "arxiv"
@@ -23,5 +22,4 @@ search:
     AND (tools OR "tool use" OR "function calling" OR orchestration)
   max_results: 8
   days_back: 540
-
-thermometer_thresholds: { N1_max: 7, N2_max: 13, N3_max: 18 }
+termo meter_thresholds: { N1_max: 7, N2_max: 13, N3_max: 18 }
