@@ -42,3 +42,5 @@ curl -X POST http://localhost:8000/run_pdf \
   -H "Content-Type: application/json" \
   -d '{"query":"Qual é a política de fretes e prazo?","formato":"texto"}' \
   --output colabIA_fretes.pdf
+source .venv/bin/activate    # Linux/Mac
+.\.venv\Scripts\activate     # Windows
