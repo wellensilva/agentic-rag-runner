@@ -18,8 +18,7 @@ curl -X POST http://localhost:8000/tool/crm_upsert \
     "canal_preferido":"whatsapp",
     "ticket_medio": 920.0,
     "ultimo_pedido":"2025-09-10",
-    "notas":"Prefere mensagem curta no WhatsApp. Boa resposta a kits de amostra."
-  }'
+    "notas":"Prefere mensagem curta no WhatsApp. Boa resposta a kits de amostra."}'
 curl -X POST http://localhost:8000/tool/crm_lookup \
   -H "Content-Type: application/json" \
   -d '{"nome":"Ana"}'
