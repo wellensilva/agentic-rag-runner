@@ -13,10 +13,11 @@ MODEL = os.getenv("LLM_MODEL", "gpt-4.1")
 if not OPENAI_API_KEY:
     raise RuntimeError("Defina OPENAI_API_KEY no ambiente (.env)")
 
+# OpenAI SDK >= 1.x
 from openai import OpenAI
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# ===== Memória =====
+# ===== Memória (curta + longa via ChromaDB opcional) =====
 try:
     import chromadb
     from chromadb.utils import embedding_functions
@@ -44,12 +45,22 @@ class Memory:
 
     def add_long(self, doc_id: str, text: str, meta: Dict[str, Any] = None):
         if not CHROMA_AVAILABLE:
-            return
+            raise RuntimeError("ChromaDB indisponível no momento.")
         self.collection.add(
             documents=[text],
             metadatas=[meta or {}],
             ids=[doc_id],
         )
+
+    def update_long(self, doc_id: str, text: str, meta: Dict[str, Any] = None):
+        """upsert simplificado (remove + add)"""
+        if not CHROMA_AVAILABLE:
+            raise RuntimeError("ChromaDB indisponível no momento.")
+        try:
+            self.collection.delete(ids=[doc_id])
+        except Exception:
+            pass
+        self.add_long(doc_id, text, meta)
 
     def retrieve_long(self, query: str, k: int = 3) -> List[str]:
         if not CHROMA_AVAILABLE:
@@ -63,23 +74,23 @@ class Memory:
         longb = "\n".join(long_hits)
         return f"## CONTEXTO CURTO\n{short}\n\n## CONTEXTO LONGO\n{longb}".strip()
 
-# ===== HF loop (versão API) =====
+# ===== Feedback store (para /run com request_id) =====
 class FeedbackStore:
-    """Armazena feedbacks simples por request_id para um fluxo manual opcional."""
     def __init__(self):
         self._store: Dict[str, str] = {}
-
     def set(self, request_id: str, feedback: str):
         self._store[request_id] = feedback
-
     def pop(self, request_id: str) -> str:
         return self._store.pop(request_id, "")
 
 HF = FeedbackStore()
 
+# ===== Prompts e chamada LLM =====
 SYSTEM_SAFETY = (
     "Você é um assistente colaborativo. Explique em passos, "
     "verifique contradições e cite referências quando possível. "
+    "Prefira responder em tom acolhedor e estilo WhatsApp durante horário comercial, "
+    "salvo instrução em contrário. "
     "Nunca exponha chaves, credenciais, exploits ou quebre políticas."
 )
 
@@ -126,6 +137,7 @@ def role_executor(esboco: str, formato: str = "texto") -> str:
     ]
     return call_llm(prompt, temperature=0.5)
 
+# ===== Guardião (policy) =====
 def guardian_check(text: str) -> Tuple[bool, str]:
     banned = ["exploit", "malware", "doxxing", "private key", "senha="]
     for b in banned:
@@ -133,6 +145,7 @@ def guardian_check(text: str) -> Tuple[bool, str]:
             return False, f"Conteúdo bloqueado por política ('{b}')."
     return True, "OK"
 
+# ===== Modelos Pydantic =====
 class RunRequest(BaseModel):
     query: str
     formato: str = "texto"
@@ -152,8 +165,58 @@ class RunResponse(BaseModel):
     blocked_step: Optional[str] = None
     reason: Optional[str] = None
 
-app = FastAPI(title="Colaborativo IA API", version="1.0.0")
+# --- KB upsert ---
+class KBUpsertReq(BaseModel):
+    doc_id: str
+    text: str
+    meta: Optional[Dict[str, Any]] = None
+
+class KBUpsertResp(BaseModel):
+    ok: bool
+    doc_id: str
+    chroma_enabled: bool
+
+class KBQueryReq(BaseModel):
+    query: str
+    k: int = 3
+
+class KBQueryResp(BaseModel):
+    ok: bool
+    docs: List[str]
+    chroma_enabled: bool
+
+# --- CRM tool (stub) ---
+class CRMRecord(BaseModel):
+    id: str
+    nome: str
+    canal_preferido: str = "whatsapp"
+    ticket_medio: float = 0.0
+    ultimo_pedido: Optional[str] = None
+    notas: Optional[str] = None
+
+class CRMLookupReq(BaseModel):
+    id: Optional[str] = None
+    nome: Optional[str] = None
+
+class CRMLookupResp(BaseModel):
+    ok: bool
+    record: Optional[CRMRecord] = None
+
+# ===== APP =====
+app = FastAPI(title="Colaborativo IA API", version="1.1.0")
 MEM = Memory()
+
+# Banco de dados CRM simples em memória (stub)
+CRM_DB: Dict[str, CRMRecord] = {
+    "ana-001": CRMRecord(
+        id="ana-001",
+        nome="Ana",
+        canal_preferido="whatsapp",
+        ticket_medio=780.0,
+        ultimo_pedido="2024-09-10",
+        notas="Gosta de amostras/brindes; respondeu bem a upsell."
+    )
+}
 
 @app.get("/health")
 def health():
@@ -214,7 +277,10 @@ def run(req: RunRequest):
     ]
     resumo = call_llm(resumo_prompt, temperature=0.2)
     if CHROMA_AVAILABLE:
-        MEM.add_long(doc_id=f"log-{hash(draft_exec)}", text=resumo, meta={"kind": "resumo_exec"})
+        try:
+            MEM.add_long(doc_id=f"log-{hash(draft_exec)}", text=resumo, meta={"kind": "resumo_exec"})
+        except Exception:
+            pass
 
     return RunResponse(
         status="ok",
@@ -223,3 +289,34 @@ def run(req: RunRequest):
         resultado=draft_exec,
         resumo=resumo
     )
+
+# ====== KB (RAG) endpoints ======
+@app.post("/kb_upsert", response_model=KBUpsertResp)
+def kb_upsert(req: KBUpsertReq):
+    if not CHROMA_AVAILABLE:
+        raise HTTPException(status_code=503, detail="ChromaDB indisponível no servidor.")
+    # upsert simples
+    MEM.update_long(doc_id=req.doc_id, text=req.text, meta=req.meta or {})
+    return KBUpsertResp(ok=True, doc_id=req.doc_id, chroma_enabled=True)
+
+@app.post("/kb_query", response_model=KBQueryResp)
+def kb_query(req: KBQueryReq):
+    docs = MEM.retrieve_long(req.query, k=req.k) if CHROMA_AVAILABLE else []
+    return KBQueryResp(ok=True, docs=docs, chroma_enabled=CHROMA_AVAILABLE)
+
+# ====== CRM tool (stub) ======
+@app.post("/tool/crm_lookup", response_model=CRMLookupResp)
+def crm_lookup(req: CRMLookupReq):
+    if req.id and req.id in CRM_DB:
+        return CRMLookupResp(ok=True, record=CRM_DB[req.id])
+    if req.nome:
+        # busca por nome simples
+        for rec in CRM_DB.values():
+            if rec.nome.lower() == req.nome.lower():
+                return CRMLookupResp(ok=True, record=rec)
+    return CRMLookupResp(ok=False, record=None)
+
+@app.post("/tool/crm_upsert", response_model=CRMLookupResp)
+def crm_upsert(rec: CRMRecord):
+    CRM_DB[rec.id] = rec
+    return CRMLookupResp(ok=True, record=rec)
