@@ -10,3 +10,19 @@ curl -X POST http://localhost:8000/kb_query \
 curl -X POST http://localhost:8000/run \
   -H "Content-Type: application/json" \
   -d '{"query":"Qual é a política de fretes e prazo?", "formato":"texto"}'
+curl -X POST http://localhost:8000/tool/crm_upsert \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id":"cliente-002",
+    "nome":"Beatriz",
+    "canal_preferido":"whatsapp",
+    "ticket_medio": 920.0,
+    "ultimo_pedido":"2025-09-10",
+    "notas":"Prefere mensagem curta no WhatsApp. Boa resposta a kits de amostra."
+  }'
+curl -X POST http://localhost:8000/tool/crm_lookup \
+  -H "Content-Type: application/json" \
+  -d '{"nome":"Ana"}'
+curl -X POST http://localhost:8000/run \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Plano para atender a Ana hoje com upsell e próxima ação","formato":"texto"}'
