@@ -1,7 +1,9 @@
 import os
 import json
 from typing import List, Dict, Any, Tuple, Optional
-
+import io
+from fpdf import FPDF
+from fastapi.responses import StreamingResponse
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
