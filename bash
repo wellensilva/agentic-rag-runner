@@ -45,3 +45,4 @@ curl -X POST http://localhost:8000/run_pdf \
 source .venv/bin/activate    # Linux/Mac
 .\.venv\Scripts\activate     # Windows
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+curl http://localhost:8000/health
