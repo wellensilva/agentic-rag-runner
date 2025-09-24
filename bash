@@ -46,3 +46,21 @@ source .venv/bin/activate    # Linux/Mac
 .\.venv\Scripts\activate     # Windows
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 curl http://localhost:8000/health
+curl -X POST http://localhost:8000/run \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Crie um plano de MVP em 1 página para o projeto Biblioteca Viva.","formato":"texto"}'
+curl -X POST http://localhost:8000/run_pdf \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Crie um plano de MVP em 1 página para o projeto Biblioteca Viva.","formato":"texto"}' \
+  --output colabIA_resultado.pdf
+curl -X POST http://localhost:8000/kb_upsert \
+  -H "Content-Type: application/json" \
+  -d '{
+    "doc_id": "pol.2025.fretes.v2",
+    "text": "Política de fretes — vigente (2025 v2):\n• Frete grátis para pedidos ≥ R$350\n• Prazo de entrega: 2–3 dias",
+    "meta": {"kind":"policy","year":"2025","version":"v2"}
+  }'
+curl -X POST http://localhost:8000/run_pdf \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Qual é a política de fretes e prazo?","formato":"texto"}' \
+  --output colabIA_fretes.pdf
