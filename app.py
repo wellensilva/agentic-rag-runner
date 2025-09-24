@@ -322,3 +322,46 @@ def crm_lookup(req: CRMLookupReq):
 def crm_upsert(rec: CRMRecord):
     CRM_DB[rec.id] = rec
     return CRMLookupResp(ok=True, record=rec)
+    # ===== PDF helper =====
+class _PDF(FPDF):
+    def header(self):
+        self.set_font("Helvetica", "B", 14)
+        self.cell(0, 10, "Colaborativo IA — Resultado", new_x="LMARGIN", new_y="NEXT", align="C")
+
+def make_pdf(title: str, body: str, resumo: str = "") -> bytes:
+    pdf = _PDF(format="A4")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.multi_cell(0, 8, title)
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "", 11)
+    pdf.multi_cell(0, 6, body)
+    if resumo:
+        pdf.ln(4)
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.multi_cell(0, 8, "Resumo")
+        pdf.set_font("Helvetica", "", 11)
+        pdf.multi_cell(0, 6, resumo)
+    return bytes(pdf.output(dest="S"))
+    @app.post("/run_pdf")
+def run_pdf(req: RunRequest):
+    # Reutiliza a mesma lógica do /run
+    resp = run(req)
+    # Quando chamado internamente, resp já é um RunResponse (pydantic) ou dict compatível
+    data = resp if isinstance(resp, dict) else resp.model_dump()
+
+    if data.get("status") != "ok":
+        raise HTTPException(status_code=400, detail=f"Fluxo bloqueado em {data.get('blocked_step')}: {data.get('reason')}")
+
+    resultado = data.get("resultado") or ""
+    resumo = data.get("resumo") or ""
+    if not resultado.strip():
+        raise HTTPException(status_code=422, detail="Nenhum conteúdo para gerar PDF.")
+
+    pdf_bytes = make_pdf(title="Resultado do Orquestrador", body=resultado, resumo=resumo)
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="colabIA_resultado.pdf"'}
+    )
