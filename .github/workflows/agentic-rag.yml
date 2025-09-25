@@ -101,7 +101,6 @@ jobs:
           if [ -f uv.pid ]; then kill $(cat uv.pid) || true; fi
           sleep 1
           pkill -f "uvicorn app:app" || true
-OPENAI_API_KEY em: Settings → Secrets and variables → Actions → New repository secret
 .venv/
 __pycache__/
 *.log
