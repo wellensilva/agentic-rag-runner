@@ -1,35 +1,12 @@
 name: agentic-rag
-
 on:
   workflow_dispatch:
-    inputs:
-      task:
-        description: "O que rodar"
-        required: true
-        default: "stub_v3"
-        type: choice
-        options: [stub_v3, papers, demo]
-      profile:
-        description: "Perfil/Preferências"
-        required: true
-        default: "default"
-        type: choice
-        options: [default, whatsapp_acolhedor, email_formal]
-      query:
-        description: "Pergunta/consulta (usada em papers e demo)"
-        required: false
-        default: ""
-
-permissions:
-  contents: read
-
-concurrency:
-  group: agentic-rag-${{ github.ref }}
-  cancel-in-progress: false
 
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,38 +14,91 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
+          python-version: '3.11'
 
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # deps usadas pelo runner
-          pip install feedparser pyyaml beautifulsoup4 requests tenacity arxiv
+          pip install -r requirements.txt
 
-      - name: Run runner.py
+      - name: Set env
         env:
-          TASK:    ${{ inputs.task }}
-          PROFILE: ${{ inputs.profile }}
-          QUERY:   ${{ inputs.query }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          set -e
-          echo "TASK=$TASK PROFILE=$PROFILE QUERY=$QUERY"
-          python runner.py --task "$TASK" --profile "$PROFILE" --query "$QUERY"
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "OPENAI_API_KEY não configurada em Secrets → Actions."
+            exit 1
+          fi
+          echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> $GITHUB_ENV
+          echo "LLM_MODEL=gpt-4.1" >> $GITHUB_ENV
 
-      - name: Generate cards (papers → outputs/cards.md)
-        if: ${{ always() }}
+      - name: Start API (background)
         run: |
-          python tools/generate_cards.py --input outputs/papers.json --out outputs/cards.md || true
+          nohup uvicorn app:app --host 0.0.0.0 --port 8000 --reload > uvicorn.log 2>&1 &
+          echo $! > uv.pid
+          sleep 2
+
+      - name: Wait health
+        run: |
+          for i in $(seq 1 40); do
+            curl -fsS http://localhost:8000/health && exit 0 || sleep 0.5
+          done
+          echo "Healthcheck falhou"; echo "---- uvicorn.log ----"; cat uvicorn.log; exit 1
+
+      - name: Run /run (JSON)
+        run: |
+          curl -fsS -X POST http://localhost:8000/run \
+            -H "Content-Type: application/json" \
+            -d '{"query":"Crie um plano de MVP em 1 página para o projeto Biblioteca Viva.","formato":"texto"}' \
+            -o out_run.json
+          jq . out_run.json | head -n 80 || true
+
+      - name: Run /run_pdf (gera colabIA_resultado.pdf)
+        run: |
+          curl -fsS -X POST http://localhost:8000/run_pdf \
+            -H "Content-Type: application/json" \
+            -d '{"query":"Crie um plano de MVP em 1 página para o projeto Biblioteca Viva.","formato":"texto"}' \
+            --output colabIA_resultado.pdf
+
+      - name: Upsert KB (fretes 2025 v2) [opcional]
+        continue-on-error: true
+        run: |
+          curl -fsS -X POST http://localhost:8000/kb_upsert \
+            -H "Content-Type: application/json" \
+            -d '{"doc_id":"pol.2025.fretes.v2","text":"Política de fretes — vigente (2025 v2):\n• Frete grátis para pedidos ≥ R$350\n• Prazo de entrega: 2–3 dias\n• Fonte: pol.2025.fretes.v2\n• Validade: até nova atualização","meta":{"kind":"policy","year":"2025","version":"v2"}}' \
+            -o out_kb_upsert.json || true
+
+      - name: Run /run_pdf (fretes)
+        run: |
+          curl -fsS -X POST http://localhost:8000/run_pdf \
+            -H "Content-Type: application/json" \
+            -d '{"query":"Qual é a política de fretes e prazo?","formato":"texto"}' \
+            --output colabIA_fretes.pdf
+
+      - name: Run plano Ana (JSON)
+        run: |
+          curl -fsS -X POST http://localhost:8000/run \
+            -H "Content-Type: application/json" \
+            -d '{"query":"Plano para atender a Ana hoje com upsell e próxima ação","formato":"texto"}' \
+            -o out_ana.json
+          jq . out_ana.json | head -n 80 || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: agent-test-results
-          path: |
-            outputs/**
-            logs/**
-            state/**
-            *.json
-          if-no-files-found: warn
+            name: colabIA-results
+            path: |
+              out_run.json
+              out_ana.json
+              out_kb_upsert.json
+              colabIA_resultado.pdf
+              colabIA_fretes.pdf
+              uvicorn.log
+
+      - name: Stop API
+        if: always()
+        run: |
+          if [ -f uv.pid ]; then kill $(cat uv.pid) || true; fi
+          sleep 1
+          pkill -f "uvicorn app:app" || true
+OPENAI_API_KEY em: Settings → Secrets and variables → Actions → New repository secret
