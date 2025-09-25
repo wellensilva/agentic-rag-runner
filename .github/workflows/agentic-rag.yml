@@ -1,6 +1,11 @@
 name: agentic-rag
+
 on:
-  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:   # permite rodar manualmente
 
 jobs:
   run:
@@ -26,7 +31,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           if [ -z "${OPENAI_API_KEY}" ]; then
-            echo "OPENAI_API_KEY não configurada em Secrets → Actions."
+            echo "❌ OPENAI_API_KEY não configurada em Secrets → Actions."
             exit 1
           fi
           echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> $GITHUB_ENV
@@ -43,7 +48,7 @@ jobs:
           for i in $(seq 1 40); do
             curl -fsS http://localhost:8000/health && exit 0 || sleep 0.5
           done
-          echo "Healthcheck falhou"; echo "---- uvicorn.log ----"; cat uvicorn.log; exit 1
+          echo "❌ Healthcheck falhou"; cat uvicorn.log; exit 1
 
       - name: Run /run (JSON)
         run: |
@@ -51,7 +56,7 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"query":"Crie um plano de MVP em 1 página para o projeto Biblioteca Viva.","formato":"texto"}' \
             -o out_run.json
-          jq . out_run.json | head -n 80 || true
+          jq . out_run.json | head -n 50 || true
 
       - name: Run /run_pdf (gera colabIA_resultado.pdf)
         run: |
@@ -60,28 +65,13 @@ jobs:
             -d '{"query":"Crie um plano de MVP em 1 página para o projeto Biblioteca Viva.","formato":"texto"}' \
             --output colabIA_resultado.pdf
 
-      - name: Upsert KB (fretes 2025 v2) [opcional]
-        continue-on-error: true
-        run: |
-          curl -fsS -X POST http://localhost:8000/kb_upsert \
-            -H "Content-Type: application/json" \
-            -d '{"doc_id":"pol.2025.fretes.v2","text":"Política de fretes — vigente (2025 v2):\n• Frete grátis para pedidos ≥ R$350\n• Prazo de entrega: 2–3 dias\n• Fonte: pol.2025.fretes.v2\n• Validade: até nova atualização","meta":{"kind":"policy","year":"2025","version":"v2"}}' \
-            -o out_kb_upsert.json || true
-
-      - name: Run /run_pdf (fretes)
-        run: |
-          curl -fsS -X POST http://localhost:8000/run_pdf \
-            -H "Content-Type: application/json" \
-            -d '{"query":"Qual é a política de fretes e prazo?","formato":"texto"}' \
-            --output colabIA_fretes.pdf
-
       - name: Run plano Ana (JSON)
         run: |
           curl -fsS -X POST http://localhost:8000/run \
             -H "Content-Type: application/json" \
             -d '{"query":"Plano para atender a Ana hoje com upsell e próxima ação","formato":"texto"}' \
             -o out_ana.json
-          jq . out_ana.json | head -n 80 || true
+          jq . out_ana.json | head -n 50 || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -90,9 +80,7 @@ jobs:
             path: |
               out_run.json
               out_ana.json
-              out_kb_upsert.json
               colabIA_resultado.pdf
-              colabIA_fretes.pdf
               uvicorn.log
 
       - name: Stop API
@@ -101,8 +89,3 @@ jobs:
           if [ -f uv.pid ]; then kill $(cat uv.pid) || true; fi
           sleep 1
           pkill -f "uvicorn app:app" || true
-.venv/
-__pycache__/
-*.log
-*.pdf
-chroma_store/
