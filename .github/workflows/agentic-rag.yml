@@ -102,3 +102,8 @@ jobs:
           sleep 1
           pkill -f "uvicorn app:app" || true
 OPENAI_API_KEY em: Settings → Secrets and variables → Actions → New repository secret
+.venv/
+__pycache__/
+*.log
+*.pdf
+chroma_store/
