@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-br">
+<meta charset="utf-8">
+<title>Colaborativo IA — UI</title>
+<style>
+  body{font-family:system-ui,Arial;margin:20px;max-width:900px}
+  textarea{width:100%;height:120px}
+  pre{background:#111;color:#eee;padding:12px;border-radius:8px;white-space:pre-wrap}
+  button{padding:10px 16px}
+</style>
+<h1>Colaborativo IA</h1>
+<label>Query</label>
+<textarea id="q">Crie um plano de MVP em 1 página para o projeto Biblioteca Viva.</textarea>
+<p><button onclick="run()">/run</button> <button onclick="runPdf()">/run_pdf</button></p>
+<pre id="out">aguardando…</pre>
+<script>
+async function run(){
+  const r = await fetch('/run',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({query:document.getElementById('q').value,formato:'texto'})});
+  document.getElementById('out').textContent = JSON.stringify(await r.json(),null,2);
+}
+async function runPdf(){
+  const r = await fetch('/run_pdf',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({query:document.getElementById('q').value,formato:'texto'})});
+  const blob = await r.blob(); const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='colabIA_resultado.pdf'; a.click();
+}
+</script>
