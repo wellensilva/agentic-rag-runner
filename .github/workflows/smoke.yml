@@ -1,7 +1,93 @@
 name: smoke
-on: { workflow_dispatch: {} }
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
 jobs:
-  ok:
+  smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONUNBUFFERED: "1"
+
     steps:
-      - run: echo "up"
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure app.py present
+        run: |
+          test -f app.py || (echo "✗ app.py não está na raiz do repo" && exit 1)
+          echo "✓ app.py encontrado"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Inject secrets
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          API_ACCESS_TOKEN: ${{ secrets.API_ACCESS_TOKEN }}
+        run: |
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "❌ OPENAI_API_KEY não configurada (Settings → Secrets → Actions)."
+            exit 1
+          fi
+          echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> $GITHUB_ENV
+          if [ -n "${API_ACCESS_TOKEN}" ]; then
+            echo "API_ACCESS_TOKEN=${API_ACCESS_TOKEN}" >> $GITHUB_ENV
+          fi
+
+      - name: Start API
+        run: |
+          nohup uvicorn app:app --host 127.0.0.1 --port 8000 --reload > uvicorn.log 2>&1 &
+          echo $! > uv.pid
+          sleep 2
+          tail -n +1 uvicorn.log | sed -n '1,60p' || true
+
+      - name: Wait /health
+        run: |
+          set +e
+          for i in $(seq 1 40); do
+            curl -fsS http://127.0.0.1:8000/health && exit 0
+            sleep 1
+          done
+          echo "❌ Healthcheck falhou"
+          echo "---- uvicorn.log (FULL) ----"
+          cat uvicorn.log || true
+          exit 1
+
+      - name: Call /run (quick)
+        run: |
+          HDR_AUTH=""
+          [ -n "${API_ACCESS_TOKEN}" ] && HDR_AUTH="-H 'Authorization: Bearer ${API_ACCESS_TOKEN}'"
+          sh -c "curl -fsS -X POST http://127.0.0.1:8000/run \
+            ${HDR_AUTH} \
+            -H 'Content-Type: application/json' \
+            -d '{\"query\":\"Teste rápido: diga apenas OLÁ.\",\"formato\":\"texto\"}' \
+            -o smoke_run.json"
+          head -n 40 smoke_run.json || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-artifacts
+          path: |
+            smoke_run.json
+            uvicorn.log
+
+      - name: Stop API
+        if: always()
+        run: |
+          if [ -f uv.pid ]; then kill $(cat uv.pid) || true; fi
+          pkill -f "uvicorn app:app" || true
