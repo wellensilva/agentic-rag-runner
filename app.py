@@ -2,6 +2,9 @@ import os
 import json
 from typing import List, Dict, Any, Tuple, Optional
 import io
+from typing import Optional
+from fastapi import Depends, Header, Request
+from fastapi.staticfiles import StaticFiles
 from fpdf import FPDF
 from fastapi.responses import StreamingResponse
 from fastapi import FastAPI, HTTPException
