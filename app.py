@@ -1,4 +1,4 @@
-import os
+#import os
 import json
 from typing import List, Dict, Any, Tuple, Optional
 import io
@@ -17,6 +17,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 MODEL = os.getenv("LLM_MODEL", "gpt-4.1")
 if not OPENAI_API_KEY:
     raise RuntimeError("Defina OPENAI_API_KEY no ambiente (.env)")
+API_ACCESS_TOKEN=meu_token_supersecreto
 
 # OpenAI SDK >= 1.x
 from openai import OpenAI
