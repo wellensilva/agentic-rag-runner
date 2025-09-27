@@ -208,6 +208,20 @@ class CRMLookupResp(BaseModel):
 app = FastAPI(title="Colaborativo IA API", version="1.1.0")
 MEM = Memory()
 
+from starlette.middleware.base import BaseHTTPMiddleware
+import time, logging
+logging.basicConfig(level=logging.INFO)
+
+class AccessLogMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        t0 = time.time()
+        resp = await call_next(request)
+        dt = (time.time()-t0)*1000
+        logging.info(f'{request.method} {request.url.path} {resp.status_code} {dt:.1f}ms')
+        return resp
+
+app.add_middleware(AccessLogMiddleware)
+
 # Banco de dados CRM simples em memória (stub)
 CRM_DB: Dict[str, CRMRecord] = {
     "ana-001": CRMRecord(
