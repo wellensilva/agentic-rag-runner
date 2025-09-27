@@ -1,0 +1,129 @@
+name: docs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure app.py present
+        run: |
+          test -f app.py || (echo "✗ app.py não está na raiz do repo" && exit 1)
+          echo "✓ app.py encontrado"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node (para gerar HTML/PDF)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps (API + docs)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # para converter HTML -> PDF via Chrome headless
+          npm i redoc-cli puppeteer
+
+      - name: Start API
+        run: |
+          nohup uvicorn app:app --host 127.0.0.1 --port 8000 --reload > uvicorn.log 2>&1 &
+          echo $! > uv.pid
+          sleep 2
+          tail -n +1 uvicorn.log | sed -n '1,80p' || true
+
+      - name: Wait /health
+        run: |
+          set +e
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8000/health && exit 0
+            sleep 1
+          done
+          echo "❌ Healthcheck falhou"
+          echo "---- uvicorn.log (FULL) ----"
+          cat uvicorn.log || true
+          exit 1
+
+      - name: Download OpenAPI JSON
+        run: |
+          curl -fsS http://127.0.0.1:8000/openapi.json -o openapi.json
+          jq .info openapi.json || true
+
+      - name: Generate HTML docs (ReDoc)
+        run: |
+          npx -y redoc-cli bundle openapi.json -o api-docs.html
+          test -s api-docs.html || (echo "❌ Falha ao gerar HTML" && exit 1)
+
+      - name: Generate PDF (Chrome headless via Puppeteer)
+        run: |
+          node -e "console.log(process.cwd())"
+          node - <<'JS'
+          const puppeteer = require('puppeteer');
+          const path = require('path');
+          (async () => {
+            const browser = await puppeteer.launch({args:['--no-sandbox','--disable-setuid-sandbox']});
+            const page = await browser.newPage();
+            const url = 'file://' + path.join(process.cwd(), 'api-docs.html');
+            await page.goto(url, { waitUntil: 'networkidle0' });
+            await page.pdf({ path: 'api-docs.pdf', format: 'A4', printBackground: true, margin: {top:'12mm',bottom:'12mm',left:'8mm',right:'8mm'} });
+            await browser.close();
+          })();
+          JS
+          test -s api-docs.pdf || (echo '❌ Falha ao gerar PDF' && exit 1)
+
+      - name: Generate Markdown summary (endpoints)
+        run: |
+          python - << 'PY'
+          import json, sys, textwrap
+          with open('openapi.json','r',encoding='utf-8') as f:
+              spec=json.load(f)
+          paths=spec.get('paths',{})
+          lines=[]
+          info=spec.get('info',{})
+          lines.append(f"# {info.get('title','API')} — v{info.get('version','1.0')}\n")
+          lines.append("## Endpoints")
+          for p,methods in sorted(paths.items()):
+              for m,desc in sorted(methods.items()):
+                  summ = desc.get('summary') or desc.get('operationId') or ''
+                  lines.append(f"- `{m.upper():6}` `{p}`  {('— '+summ) if summ else ''}")
+          lines.append("\n## Como usar localmente")
+          lines.append("```bash")
+          lines.append("uvicorn app:app --host 0.0.0.0 --port 8000 --reload")
+          lines.append("open http://localhost:8000/docs")
+          lines.append("```")
+          open('api-docs.md','w',encoding='utf-8').write("\n".join(lines))
+          print("Gerado api-docs.md")
+          PY
+          test -s api-docs.md || (echo "❌ Falha ao gerar Markdown" && exit 1)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-docs
+          path: |
+            openapi.json
+            api-docs.html
+            api-docs.pdf
+            api-docs.md
+            uvicorn.log
+
+      - name: Stop API
+        if: always()
+        run: |
+          if [ -f uv.pid ]; then kill $(cat uv.pid) || true; fi
+          pkill -f "uvicorn app:app" || true
