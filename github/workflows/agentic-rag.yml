@@ -2,67 +2,54 @@ name: agentic-rag
 
 on:
   workflow_dispatch:
-    inputs:
-      task:
-        description: "O que rodar"
-        required: true
-        default: "stub_v3"
-        type: choice
-        options: [stub_v3, papers, demo]
-      profile:
-        description: "Perfil/Preferências"
-        required: true
-        default: "default"
-        type: choice
-        options: [default, whatsapp_acolhedor, email_formal]
-      query:
-        description: "Pergunta/consulta (usada em stubs e papers)"
-        required: false
-        default: ""
-
-permissions:
-  contents: read
-
-concurrency:
-  group: agentic-rag-${{ github.ref }}
-  cancel-in-progress: false
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUNBUFFERED: "1"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Show repo layout (debug)
+        run: |
+          pwd
+          ls -la
+          echo "Looking for app.py..."
+          test -f app.py && echo "✓ app.py found" || (echo "✗ app.py NOT found at repo root" && exit 1)
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
+          python-version: '3.11'
 
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install feedparser pyyaml beautifulsoup4 requests tenacity
+          pip install -r requirements.txt
+          pip install jq  # utilitário para pretty-print (puro Python)
 
-      - name: Run runner.py
-        env:
-          TASK:    ${{ inputs.task }}
-          PROFILE: ${{ inputs.profile }}
-          QUERY:   ${{ inputs.query }}
+      - name: Check minimal imports (fast fail)
         run: |
-          set -e
-          echo "TASK=$TASK PROFILE=$PROFILE QUERY=$QUERY"
-          python runner.py --task "$TASK" --profile "$PROFILE" --query "$QUERY"
+          python - << 'PY'
+          import fastapi, uvicorn, fpdf
+          print("✓ FastAPI/uvicorn/fpdf import OK")
+          PY
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: agent-test-results
-          path: |
-            outputs/**
-            logs/**
-            state/**
-            *.json
-          if-no-files-found: warn
+      - name: Inject secrets (OpenAI)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "❌ OPENAI_API_KEY não configurada (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+          echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> $GITHUB_ENV
+          echo "LLM_MODEL=gpt-4.1"
