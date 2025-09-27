@@ -8,3 +8,5 @@ feedparser>=6.0.11
 beautifulsoup4>=4.12.3
 PyYAML>=6.0.2
 fpdf2>=2.7.9
+aiofiles>=23.2.1      # servir arquivos estáticos
+fpdf2>=2.7.9          # (já usamos no /run_pdf)
