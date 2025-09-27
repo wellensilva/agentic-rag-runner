@@ -43,12 +43,15 @@ jobs:
           echo $! > uv.pid
           sleep 2
 
-      - name: Wait health
+          - name: Wait health
         run: |
           for i in $(seq 1 40); do
             curl -fsS http://localhost:8000/health && exit 0 || sleep 0.5
           done
-          echo "❌ Healthcheck falhou"; cat uvicorn.log; exit 1
+          echo "❌ Healthcheck falhou"
+          echo "---- uvicorn.log ----"
+          cat uvicorn.log || true
+          exit 1
 
       - name: Run /run (JSON)
         run: |
