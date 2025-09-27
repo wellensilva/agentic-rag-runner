@@ -1,29 +1,36 @@
-#import os
-import json
-from typing import List, Dict, Any, Tuple, Optional
+import os
 import io
-from typing import Optional
-from fastapi import Depends, Header, Request
-from fastapi.staticfiles import StaticFiles
-from fpdf import FPDF
+import json
+import time
+import logging
+from typing import List, Dict, Any, Tuple, Optional
+
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.responses import StreamingResponse
-from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from fpdf import FPDF
 
 load_dotenv()
 
+# ============== CONFIG BÁSICA ==============
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 MODEL = os.getenv("LLM_MODEL", "gpt-4.1")
 if not OPENAI_API_KEY:
     raise RuntimeError("Defina OPENAI_API_KEY no ambiente (.env)")
-API_ACCESS_TOKEN=meu_token_supersecreto
+
+# Auth opcional por token (Bearer)
+API_ACCESS_TOKEN = os.getenv("API_ACCESS_TOKEN", "")
 
 # OpenAI SDK >= 1.x
 from openai import OpenAI
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# ===== Memória (curta + longa via ChromaDB opcional) =====
+# Logging simples
+logging.basicConfig(level=logging.INFO)
+
+# ============== MEMÓRIA (curta + longa via Chroma opcional) ==============
 try:
     import chromadb
     from chromadb.utils import embedding_functions
@@ -52,14 +59,9 @@ class Memory:
     def add_long(self, doc_id: str, text: str, meta: Dict[str, Any] = None):
         if not CHROMA_AVAILABLE:
             raise RuntimeError("ChromaDB indisponível no momento.")
-        self.collection.add(
-            documents=[text],
-            metadatas=[meta or {}],
-            ids=[doc_id],
-        )
+        self.collection.add(documents=[text], metadatas=[meta or {}], ids=[doc_id])
 
     def update_long(self, doc_id: str, text: str, meta: Dict[str, Any] = None):
-        """upsert simplificado (remove + add)"""
         if not CHROMA_AVAILABLE:
             raise RuntimeError("ChromaDB indisponível no momento.")
         try:
@@ -80,18 +82,22 @@ class Memory:
         longb = "\n".join(long_hits)
         return f"## CONTEXTO CURTO\n{short}\n\n## CONTEXTO LONGO\n{longb}".strip()
 
-# ===== Feedback store (para /run com request_id) =====
-class FeedbackStore:
-    def __init__(self):
-        self._store: Dict[str, str] = {}
-    def set(self, request_id: str, feedback: str):
-        self._store[request_id] = feedback
-    def pop(self, request_id: str) -> str:
-        return self._store.pop(request_id, "")
+# ============== AUTH (Bearer) ==============
+class _Auth:
+    def __call__(self, authorization: Optional[str] = Header(None)):
+        # Se não há token configurado no servidor, mantém endpoints abertos (modo dev).
+        if not API_ACCESS_TOKEN:
+            return True
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Missing Bearer token.")
+        token = authorization.split(" ", 1)[1].strip()
+        if token != API_ACCESS_TOKEN:
+            raise HTTPException(status_code=401, detail="Invalid token.")
+        return True
 
-HF = FeedbackStore()
+auth_required = _Auth()
 
-# ===== Prompts e chamada LLM =====
+# ============== PROMPTS / LLM ==============
 SYSTEM_SAFETY = (
     "Você é um assistente colaborativo. Explique em passos, "
     "verifique contradições e cite referências quando possível. "
@@ -143,7 +149,7 @@ def role_executor(esboco: str, formato: str = "texto") -> str:
     ]
     return call_llm(prompt, temperature=0.5)
 
-# ===== Guardião (policy) =====
+# ============== GUARDIÃO ==============
 def guardian_check(text: str) -> Tuple[bool, str]:
     banned = ["exploit", "malware", "doxxing", "private key", "senha="]
     for b in banned:
@@ -151,7 +157,7 @@ def guardian_check(text: str) -> Tuple[bool, str]:
             return False, f"Conteúdo bloqueado por política ('{b}')."
     return True, "OK"
 
-# ===== Modelos Pydantic =====
+# ============== MODELOS (Pydantic) ==============
 class RunRequest(BaseModel):
     query: str
     formato: str = "texto"
@@ -171,23 +177,7 @@ class RunResponse(BaseModel):
     blocked_step: Optional[str] = None
     reason: Optional[str] = None
 
-# ===== Auth por token (Bearer) =====
-API_ACCESS_TOKEN = os.getenv("API_ACCESS_TOKEN", "")  # defina no .env (opcional)
-
-class _Auth:
-    def __call__(self, authorization: Optional[str] = Header(None)):
-        # Se não houver token configurado, não exige auth (modo aberto)
-        if not API_ACCESS_TOKEN:
-            return True
-        if not authorization or not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Missing Bearer token.")
-        token = authorization.split(" ", 1)[1].strip()
-        if token != API_ACCESS_TOKEN:
-            raise HTTPException(status_code=401, detail="Invalid token.")
-        return True
-
-auth_required = _Auth()
-# --- KB upsert ---
+# KB
 class KBUpsertReq(BaseModel):
     doc_id: str
     text: str
@@ -207,7 +197,7 @@ class KBQueryResp(BaseModel):
     docs: List[str]
     chroma_enabled: bool
 
-# --- CRM tool (stub) ---
+# CRM
 class CRMRecord(BaseModel):
     id: str
     nome: str
@@ -224,73 +214,93 @@ class CRMLookupResp(BaseModel):
     ok: bool
     record: Optional[CRMRecord] = None
 
-# ===== APP =====
-app = FastAPI(title="Colaborativo IA API", version="1.1.0")
+# Eval
+class EvalRequest(BaseModel):
+    query: str
+    formato: str = "texto"
+    required: List[str] = []
+    prohibited: List[str] = []
+    min_hits: int = 1
+
+class EvalResponse(BaseModel):
+    status: str
+    hits: int
+    required: List[str]
+    missing: List[str]
+    prohibited_found: List[str]
+    resultado: str
+    resumo: str
+
+# CRM Offer
+class CRMOfferReq(BaseModel):
+    id: Optional[str] = None
+    nome: Optional[str] = None
+
+class CRMOfferResp(BaseModel):
+    ok: bool
+    record: Optional[CRMRecord] = None
+    recomendacao: Optional[str] = None
+
+# ============== APP E MIDDLEWARE ==============
+app = FastAPI(title="Colaborativo IA API", version="1.2.0")
 MEM = Memory()
-# Sirva arquivos da pasta ./static em /ui (index.html aberto em /ui)
+
+# UI estática em /ui (sirva ./static/index.html)
 app.mount("/ui", StaticFiles(directory="static", html=True), name="ui")
-from starlette.middleware.base import BaseHTTPMiddleware
-import time, logging
-logging.basicConfig(level=logging.INFO)
 
-class AccessLogMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        t0 = time.time()
-        resp = await call_next(request)
-        dt = (time.time()-t0)*1000
-        logging.info(f'{request.method} {request.url.path} {resp.status_code} {dt:.1f}ms')
-        return resp
-
-app.add_middleware(AccessLogMiddleware)
-
-# Banco de dados CRM simples em memória (stub)
+# Banco CRM em memória (stub)
 CRM_DB: Dict[str, CRMRecord] = {
     "ana-001": CRMRecord(
-        id="ana-001",
-        nome="Ana",
-        canal_preferido="whatsapp",
-        ticket_medio=780.0,
-        ultimo_pedido="2024-09-10",
+        id="ana-001", nome="Ana", canal_preferido="whatsapp",
+        ticket_medio=780.0, ultimo_pedido="2024-09-10",
         notas="Gosta de amostras/brindes; respondeu bem a upsell."
     )
 }
 
+# ============== HEALTH (sem auth) ==============
 @app.get("/health")
 def health():
     return {"ok": True}
 
+# ============== FEEDBACK (com auth) ==============
+class FeedbackStore:
+    def __init__(self):
+        self._store: Dict[str, str] = {}
+    def set(self, request_id: str, feedback: str):
+        self._store[request_id] = feedback
+    def pop(self, request_id: str) -> str:
+        return self._store.pop(request_id, "")
+
+HF = FeedbackStore()
+
 @app.post("/feedback")
-def set_feedback(req: FeedbackRequest):
+def set_feedback(req: FeedbackRequest, _=Depends(auth_required)):
     HF.set(req.request_id, req.feedback)
     return {"ok": True}
 
+# ============== ORQUESTRADOR (com auth) ==============
 @app.post("/run", response_model=RunResponse)
-def run(req: RunRequest):
-    # 1) contexto
+def run(req: RunRequest, _=Depends(auth_required)):
     ctx = MEM.context_block(req.query)
 
-    # 2) pesquisador
     draft_pesq = role_pesquisador(req.query, ctx)
     MEM.push_short(f"[pesquisador]\n{draft_pesq}")
     ok, why = guardian_check(draft_pesq)
     if not ok:
         return RunResponse(status="blocked", blocked_step="pesquisador", reason=why)
 
-    # 3) sintetizador
     draft_synth = role_sintetizador(draft_pesq)
     MEM.push_short(f"[sintetizador]\n{draft_synth}")
     ok, why = guardian_check(draft_synth)
     if not ok:
         return RunResponse(status="blocked", blocked_step="sintetizador", reason=why)
 
-    # 4) executor
     draft_exec = role_executor(draft_synth, formato=req.formato)
     MEM.push_short(f"[executor]\n{draft_exec}")
     ok, why = guardian_check(draft_exec)
     if not ok:
         return RunResponse(status="blocked", blocked_step="executor", reason=why)
 
-    # 5) feedback humano (opcional)
     if req.apply_feedback and req.request_id:
         fb_text = HF.pop(req.request_id)
         if fb_text:
@@ -305,7 +315,6 @@ def run(req: RunRequest):
             ]
             draft_exec = call_llm(regen_prompt, temperature=0.4)
 
-    # 6) resumo e persistência leve
     resumo_prompt = [
         {"role": "system", "content": SYSTEM_SAFETY},
         {"role": "user", "content": (
@@ -319,45 +328,9 @@ def run(req: RunRequest):
         except Exception:
             pass
 
-    return RunResponse(
-        status="ok",
-        pesquisa=draft_pesq,
-        esboco=draft_synth,
-        resultado=draft_exec,
-        resumo=resumo
-    )
+    return RunResponse(status="ok", pesquisa=draft_pesq, esboco=draft_synth, resultado=draft_exec, resumo=resumo)
 
-# ====== KB (RAG) endpoints ======
-@app.post("/kb_upsert", response_model=KBUpsertResp)
-def kb_upsert(req: KBUpsertReq):
-    if not CHROMA_AVAILABLE:
-        raise HTTPException(status_code=503, detail="ChromaDB indisponível no servidor.")
-    # upsert simples
-    MEM.update_long(doc_id=req.doc_id, text=req.text, meta=req.meta or {})
-    return KBUpsertResp(ok=True, doc_id=req.doc_id, chroma_enabled=True)
-
-@app.post("/kb_query", response_model=KBQueryResp)
-def kb_query(req: KBQueryReq):
-    docs = MEM.retrieve_long(req.query, k=req.k) if CHROMA_AVAILABLE else []
-    return KBQueryResp(ok=True, docs=docs, chroma_enabled=CHROMA_AVAILABLE)
-
-# ====== CRM tool (stub) ======
-@app.post("/tool/crm_lookup", response_model=CRMLookupResp)
-def crm_lookup(req: CRMLookupReq):
-    if req.id and req.id in CRM_DB:
-        return CRMLookupResp(ok=True, record=CRM_DB[req.id])
-    if req.nome:
-        # busca por nome simples
-        for rec in CRM_DB.values():
-            if rec.nome.lower() == req.nome.lower():
-                return CRMLookupResp(ok=True, record=rec)
-    return CRMLookupResp(ok=False, record=None)
-
-@app.post("/tool/crm_upsert", response_model=CRMLookupResp)
-def crm_upsert(rec: CRMRecord):
-    CRM_DB[rec.id] = rec
-    return CRMLookupResp(ok=True, record=rec)
-    # ===== PDF helper =====
+# ============== PDF (com auth) ==============
 class _PDF(FPDF):
     def header(self):
         self.set_font("Helvetica", "B", 14)
@@ -379,24 +352,88 @@ def make_pdf(title: str, body: str, resumo: str = "") -> bytes:
         pdf.set_font("Helvetica", "", 11)
         pdf.multi_cell(0, 6, resumo)
     return bytes(pdf.output(dest="S"))
-    @app.post("/run_pdf")
-def run_pdf(req: RunRequest):
-    # Reutiliza a mesma lógica do /run
-    resp = run(req)
-    # Quando chamado internamente, resp já é um RunResponse (pydantic) ou dict compatível
-    data = resp if isinstance(resp, dict) else resp.model_dump()
 
+@app.post("/run_pdf")
+def run_pdf(req: RunRequest, _=Depends(auth_required)):
+    resp = run(req)  # reusa a mesma lógica
+    data = resp if isinstance(resp, dict) else resp.model_dump()
     if data.get("status") != "ok":
         raise HTTPException(status_code=400, detail=f"Fluxo bloqueado em {data.get('blocked_step')}: {data.get('reason')}")
-
     resultado = data.get("resultado") or ""
     resumo = data.get("resumo") or ""
     if not resultado.strip():
         raise HTTPException(status_code=422, detail="Nenhum conteúdo para gerar PDF.")
-
     pdf_bytes = make_pdf(title="Resultado do Orquestrador", body=resultado, resumo=resumo)
-    return StreamingResponse(
-        io.BytesIO(pdf_bytes),
-        media_type="application/pdf",
-        headers={"Content-Disposition": 'attachment; filename="colabIA_resultado.pdf"'}
+    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
+                             headers={"Content-Disposition": 'attachment; filename="colabIA_resultado.pdf"'})
+
+# ============== KB (com auth) ==============
+@app.post("/kb_upsert", response_model=KBUpsertResp)
+def kb_upsert(req: KBUpsertReq, _=Depends(auth_required)):
+    if not CHROMA_AVAILABLE:
+        raise HTTPException(status_code=503, detail="ChromaDB indisponível no servidor.")
+    MEM.update_long(doc_id=req.doc_id, text=req.text, meta=req.meta or {})
+    return KBUpsertResp(ok=True, doc_id=req.doc_id, chroma_enabled=True)
+
+@app.post("/kb_query", response_model=KBQueryResp)
+def kb_query(req: KBQueryReq, _=Depends(auth_required)):
+    docs = MEM.retrieve_long(req.query, k=req.k) if CHROMA_AVAILABLE else []
+    return KBQueryResp(ok=True, docs=docs, chroma_enabled=CHROMA_AVAILABLE)
+
+# ============== CRM (com auth) ==============
+@app.post("/tool/crm_lookup", response_model=CRMLookupResp)
+def crm_lookup(req: CRMLookupReq, _=Depends(auth_required)):
+    if req.id and req.id in CRM_DB:
+        return CRMLookupResp(ok=True, record=CRM_DB[req.id])
+    if req.nome:
+        for rec in CRM_DB.values():
+            if rec.nome.lower() == req.nome.lower():
+                return CRMLookupResp(ok=True, record=rec)
+    return CRMLookupResp(ok=False, record=None)
+
+@app.post("/tool/crm_upsert", response_model=CRMLookupResp)
+def crm_upsert(rec: CRMRecord, _=Depends(auth_required)):
+    CRM_DB[rec.id] = rec
+    return CRMLookupResp(ok=True, record=rec)
+
+@app.post("/tool/crm_recommend_offer", response_model=CRMOfferResp)
+def crm_recommend_offer(req: CRMOfferReq, _=Depends(auth_required)):
+    rec: Optional[CRMRecord] = None
+    if req.id and req.id in CRM_DB:
+        rec = CRM_DB[req.id]
+    elif req.nome:
+        for r in CRM_DB.values():
+            if r.nome.lower() == req.nome.lower():
+                rec = r
+                break
+    if not rec:
+        return CRMOfferResp(ok=False, record=None, recomendacao=None)
+
+    ticket = rec.ticket_medio or 0.0
+    if ticket >= 900:
+        oferta = "Kit premium + amostra exclusiva; frete grátis em pedidos ≥ R$350."
+    elif ticket >= 600:
+        oferta = "Combo intermediário com brinde; sugerir assinatura trimestral."
+    else:
+        oferta = "Bundle essencial + cupom de primeira recompra."
+
+    recomendacao = f"Sugerir via {rec.canal_preferido} um {oferta} e agendar follow-up em 48h."
+    return CRMOfferResp(ok=True, record=rec, recomendacao=recomendacao)
+
+# ============== EVAL (com auth) ==============
+@app.post("/eval", response_model=EvalResponse)
+def eval_run(req: EvalRequest, _=Depends(auth_required)):
+    r = run(RunRequest(query=req.query, formato=req.formato))
+    data = r if isinstance(r, dict) else r.model_dump()
+    if data.get("status") != "ok":
+        raise HTTPException(status_code=400, detail=f"Falhou: {data}")
+    texto = (data.get("resultado") or "") + "\n" + (data.get("resumo") or "")
+    hits = [t for t in (req.required or []) if t.lower() in texto.lower()]
+    missing = [t for t in (req.required or []) if t.lower() not in texto.lower()]
+    prohibited_found = [t for t in (req.prohibited or []) if t.lower() in texto.lower()]
+    status = "ok" if len(hits) >= req.min_hits and not prohibited_found else "fail"
+    return EvalResponse(
+        status=status, hits=len(hits), required=req.required, missing=missing,
+        prohibited_found=prohibited_found, resultado=data.get("resultado") or "",
+        resumo=data.get("resumo") or ""
     )
