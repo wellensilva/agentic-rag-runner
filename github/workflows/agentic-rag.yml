@@ -7,15 +7,6 @@ on:
   pull_request:
     branches: [ "main" ]
 
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
-  schedule:
-    - cron: "0 3 * * *"   # roda todo dia 03:00 UTC
-
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -43,22 +34,125 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install jq  # utilitário para pretty-print (puro Python)
+          pip install jq  # pretty-print em Python: python -m jq
 
-      - name: Check minimal imports (fast fail)
+      - name: Minimal imports (fast fail)
         run: |
           python - << 'PY'
           import fastapi, uvicorn, fpdf
           print("✓ FastAPI/uvicorn/fpdf import OK")
           PY
 
-      - name: Inject secrets (OpenAI)
+      - name: Set env
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          API_ACCESS_TOKEN: ${{ secrets.API_ACCESS_TOKEN }}
         run: |
           if [ -z "${OPENAI_API_KEY}" ]; then
-            echo "❌ OPENAI_API_KEY não configurada (Settings → Secrets and variables → Actions)."
+            echo "❌ OPENAI_API_KEY não configurada (Settings → Secrets → Actions)."
             exit 1
           fi
           echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> $GITHUB_ENV
-          echo "LLM_MODEL=gpt-4.1"
+          echo "LLM_MODEL=gpt-4.1" >> $GITHUB_ENV
+          # token é opcional; se existir, será enviado nos headers
+          if [ -n "${API_ACCESS_TOKEN}" ]; then
+            echo "API_ACCESS_TOKEN=${API_ACCESS_TOKEN}" >> $GITHUB_ENV
+          fi
+
+      - name: Start API (background)
+        run: |
+          nohup uvicorn app:app --host 127.0.0.1 --port 8000 --reload > uvicorn.log 2>&1 &
+          echo $! > uv.pid
+          sleep 2
+          echo "PID:" $(cat uv.pid)
+          tail -n +1 uvicorn.log | sed -n '1,80p' || true
+
+      - name: Wait health (with log on failure)
+        run: |
+          set +e
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8000/health && exit 0
+            sleep 1
+            if [ $((i % 5)) -eq 0 ]; then
+              echo "---- uvicorn.log (last 60 lines) ----"
+              tail -n 60 uvicorn.log || true
+            fi
+          done
+          echo "❌ Healthcheck falhou após 60s"
+          echo "---- uvicorn.log (FULL) ----"
+          cat uvicorn.log || true
+          exit 1
+
+      - name: /run (JSON)
+        run: |
+          HDR_AUTH=""
+          [ -n "${API_ACCESS_TOKEN}" ] && HDR_AUTH="-H 'Authorization: Bearer ${API_ACCESS_TOKEN}'"
+          sh -c "curl -fsS -X POST http://127.0.0.1:8000/run \
+            ${HDR_AUTH} \
+            -H 'Content-Type: application/json' \
+            -d '{\"query\":\"Crie um plano de MVP em 1 página para o projeto Biblioteca Viva.\",\"formato\":\"texto\"}' \
+            -o out_run.json"
+          python -m jq . out_run.json | head -n 120 || true
+
+      - name: /run_pdf (gera colabIA_resultado.pdf)
+        run: |
+          HDR_AUTH=""
+          [ -n "${API_ACCESS_TOKEN}" ] && HDR_AUTH="-H 'Authorization: Bearer ${API_ACCESS_TOKEN}'"
+          sh -c "curl -fsS -X POST http://127.0.0.1:8000/run_pdf \
+            ${HDR_AUTH} \
+            -H 'Content-Type: application/json' \
+            -d '{\"query\":\"Crie um plano de MVP em 1 página para o projeto Biblioteca Viva.\",\"formato\":\"texto\"}' \
+            --output colabIA_resultado.pdf"
+          test -s colabIA_resultado.pdf || (echo "❌ PDF vazio" && exit 1)
+
+      - name: Upsert KB fretes (opcional; ignora erro se Chroma não estiver ativo)
+        continue-on-error: true
+        run: |
+          HDR_AUTH=""
+          [ -n "${API_ACCESS_TOKEN}" ] && HDR_AUTH="-H 'Authorization: Bearer ${API_ACCESS_TOKEN}'"
+          sh -c "curl -fsS -X POST http://127.0.0.1:8000/kb_upsert \
+            ${HDR_AUTH} \
+            -H 'Content-Type: application/json' \
+            -d '{\"doc_id\":\"pol.2025.fretes.v2\",\"text\":\"Política de fretes — vigente (2025 v2):\\n• Frete grátis para pedidos ≥ R$350\\n• Prazo de entrega: 2–3 dias\\n• Fonte: pol.2025.fretes.v2\\n• Validade: até nova atualização\",\"meta\":{\"kind\":\"policy\",\"year\":\"2025\",\"version\":\"v2\"}}' \
+            -o out_kb_upsert.json" || true
+
+      - name: /run_pdf (fretes)
+        run: |
+          HDR_AUTH=""
+          [ -n "${API_ACCESS_TOKEN}" ] && HDR_AUTH="-H 'Authorization: Bearer ${API_ACCESS_TOKEN}'"
+          sh -c "curl -fsS -X POST http://127.0.0.1:8000/run_pdf \
+            ${HDR_AUTH} \
+            -H 'Content-Type: application/json' \
+            -d '{\"query\":\"Qual é a política de fretes e prazo?\",\"formato\":\"texto\"}' \
+            --output colabIA_fretes.pdf"
+          test -s colabIA_fretes.pdf || (echo "❌ PDF fretes vazio" && exit 1)
+
+      - name: Plano Ana (JSON)
+        run: |
+          HDR_AUTH=""
+          [ -n "${API_ACCESS_TOKEN}" ] && HDR_AUTH="-H 'Authorization: Bearer ${API_ACCESS_TOKEN}'"
+          sh -c "curl -fsS -X POST http://127.0.0.1:8000/run \
+            ${HDR_AUTH} \
+            -H 'Content-Type: application/json' \
+            -d '{\"query\":\"Plano para atender a Ana hoje com upsell e próxima ação\",\"formato\":\"texto\"}' \
+            -o out_ana.json"
+          python -m jq . out_ana.json | head -n 120 || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: colabIA-results
+          path: |
+            out_run.json
+            out_ana.json
+            out_kb_upsert.json
+            colabIA_resultado.pdf
+            colabIA_fretes.pdf
+            uvicorn.log
+
+      - name: Stop API
+        if: always()
+        run: |
+          if [ -f uv.pid ]; then kill $(cat uv.pid) || true; fi
+          sleep 1
+          pkill -f "uvicorn app:app" || true
