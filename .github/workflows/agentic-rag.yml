@@ -7,6 +7,15 @@ on:
   pull_request:
     branches: [ "main" ]
 
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"   # roda todo dia 03:00 UTC
+
 jobs:
   run:
     runs-on: ubuntu-latest
