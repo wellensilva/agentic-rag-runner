@@ -19,7 +19,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 MODEL = os.getenv("LLM_MODEL", "gpt-4.1")
 if not OPENAI_API_KEY:
     raise RuntimeError("Defina OPENAI_API_KEY no ambiente (.env)")
-
+curl -X POST http://localhost:8000/run \
+  -H "Authorization: Bearer SEU_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Crie um plano de MVP em 1 página para o projeto Biblioteca Viva.","formato":"texto"}'
 # Auth opcional por token (Bearer)
 API_ACCESS_TOKEN = os.getenv("API_ACCESS_TOKEN", "")
 
