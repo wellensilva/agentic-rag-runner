@@ -40,3 +40,6 @@ Se `chromadb` estiver instalado, os resumos finais são persistidos em `./chroma
 O `guardian_check` bloqueia conteúdos proibidos por palavras-sinal. Amplie com suas regras.
 ![smoke](https://github.com/SEU_USUARIO/SEU_REPO/actions/workflows/smoke.yml/badge.svg)
 ![agentic-rag](https://github.com/SEU_USUARIO/SEU_REPO/actions/workflows/agentic-rag.yml/badge.svg)
+![smoke](https://github.com/SEU_USUARIO/SEU_REPO/actions/workflows/smoke.yml/badge.svg)
+![staging](https://github.com/SEU_USUARIO/SEU_REPO/actions/workflows/staging.yml/badge.svg)
+![agentic-rag](https://github.com/SEU_USUARIO/SEU_REPO/actions/workflows/agentic-rag.yml/badge.svg)
