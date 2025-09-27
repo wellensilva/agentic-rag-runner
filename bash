@@ -66,3 +66,4 @@ curl -X POST http://localhost:8000/run_pdf \
   --output colabIA_fretes.pdf
 chmod +x test_colabIA.sh
 bash test_colabIA.sh
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
