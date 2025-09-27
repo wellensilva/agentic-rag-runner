@@ -66,4 +66,8 @@ curl -X POST http://localhost:8000/run_pdf \
   --output colabIA_fretes.pdf
 chmod +x test_colabIA.sh
 bash test_colabIA.sh
-uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload 
+export OPENAI_API_KEY="sk-..."
+docker compose up --build
+# Testar:
+curl http://localhost:8000/health
