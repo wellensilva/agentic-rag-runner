@@ -170,6 +170,22 @@ class RunResponse(BaseModel):
     blocked_step: Optional[str] = None
     reason: Optional[str] = None
 
+# ===== Auth por token (Bearer) =====
+API_ACCESS_TOKEN = os.getenv("API_ACCESS_TOKEN", "")  # defina no .env (opcional)
+
+class _Auth:
+    def __call__(self, authorization: Optional[str] = Header(None)):
+        # Se não houver token configurado, não exige auth (modo aberto)
+        if not API_ACCESS_TOKEN:
+            return True
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Missing Bearer token.")
+        token = authorization.split(" ", 1)[1].strip()
+        if token != API_ACCESS_TOKEN:
+            raise HTTPException(status_code=401, detail="Invalid token.")
+        return True
+
+auth_required = _Auth()
 # --- KB upsert ---
 class KBUpsertReq(BaseModel):
     doc_id: str
