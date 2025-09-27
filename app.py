@@ -227,7 +227,8 @@ class CRMLookupResp(BaseModel):
 # ===== APP =====
 app = FastAPI(title="Colaborativo IA API", version="1.1.0")
 MEM = Memory()
-
+# Sirva arquivos da pasta ./static em /ui (index.html aberto em /ui)
+app.mount("/ui", StaticFiles(directory="static", html=True), name="ui")
 from starlette.middleware.base import BaseHTTPMiddleware
 import time, logging
 logging.basicConfig(level=logging.INFO)
