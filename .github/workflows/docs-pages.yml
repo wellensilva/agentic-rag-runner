@@ -13,26 +13,94 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUNBUFFERED: "1"
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - run: |
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Guard contra trechos inválidos no app.py
+        run: |
+          set -e
+          test -f app.py
+          if grep -nE '^\s*\*\*\*' app.py; then
+            echo "❌ Encontrado marcador '***' no app.py (cola incompleta)."
+            exit 1
+          fi
+          if grep -nE '^\s*-\s*name:\s' app.py; then
+            echo "❌ Parece que colou trecho de YAML do Actions dentro do app.py."
+            exit 1
+          fi
+          echo "✓ Guard passou"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node (para gerar HTML)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps
+        run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - run: |
-          nohup uvicorn app:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
-          sleep 3
-          curl -fsS http://127.0.0.1:8000/openapi.json -o openapi.json
-      - uses: actions/setup-node@v4
-        with: { node-version: '20' }
-      - run: |
           npm i redoc-cli
+
+      - name: Inject secrets
+        run: |
+          if [ -z "${{ secrets.OPENAI_API_KEY }}" ]; then
+            echo "❌ OPENAI_API_KEY não configurada (Settings → Secrets → Actions)."
+            exit 1
+          fi
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" | tee -a $GITHUB_ENV
+          # token é opcional
+          if [ -n "${{ secrets.API_ACCESS_TOKEN }}" ]; then
+            echo "API_ACCESS_TOKEN=${{ secrets.API_ACCESS_TOKEN }}" | tee -a $GITHUB_ENV
+          fi
+
+      - name: Start API
+        run: |
+          nohup uvicorn app:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
+          echo $! > uv.pid
+          sleep 3
+          head -n 80 uvicorn.log || true
+
+      - name: Wait /health
+        run: |
+          set +e
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8000/health && exit 0
+            sleep 2
+            if [ $((i % 5)) -eq 0 ]; then
+              echo "tentativa $i..."
+              tail -n 60 uvicorn.log || true
+            fi
+          done
+          echo "❌ Healthcheck falhou"
+          echo "---- uvicorn.log (FULL) ----"
+          cat uvicorn.log || true
+          exit 1
+
+      - name: Download OpenAPI
+        run: |
+          curl -fsS http://127.0.0.1:8000/openapi.json -o openapi.json
+          jq .info openapi.json || true
+
+      - name: Build ReDoc (HTML)
+        run: |
           npx -y redoc-cli bundle openapi.json -o api-docs.html
-          mkdir public
+          mkdir -p public
           cp api-docs.html public/index.html
-      - uses: actions/upload-pages-artifact@v3
-        with: { path: public }
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
 
   deploy:
     needs: build
