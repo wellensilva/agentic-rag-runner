@@ -40,17 +40,16 @@ jobs:
           npm i redoc-cli puppeteer
 
       - name: Inject secrets
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          API_ACCESS_TOKEN: ${{ secrets.API_ACCESS_TOKEN }}
         run: |
-          if [ -z "${OPENAI_API_KEY}" ]; then
+          if [ -z "${{ secrets.OPENAI_API_KEY }}" ]; then
             echo "❌ OPENAI_API_KEY não configurada."
             exit 1
           fi
-          echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> $GITHUB_ENV
-          if [ -n "${API_ACCESS_TOKEN}" ]; then
-            echo "API_ACCESS_TOKEN=${API_ACCESS_TOKEN}" >> $GITHUB_ENV
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" | tee -a $GITHUB_ENV
+          echo "LLM_MODEL=gpt-4.1" | tee -a $GITHUB_ENV
+
+          if [ -n "${{ secrets.API_ACCESS_TOKEN }}" ]; then
+            echo "API_ACCESS_TOKEN=${{ secrets.API_ACCESS_TOKEN }}" | tee -a $GITHUB_ENV
           fi
 
       - name: Start API
@@ -96,8 +95,12 @@ jobs:
             const page = await browser.newPage();
             const url = 'file://' + path.join(process.cwd(), 'api-docs.html');
             await page.goto(url, { waitUntil: 'networkidle0' });
-            await page.pdf({ path: 'api-docs.pdf', format: 'A4', printBackground: true,
-              margin: {top:'12mm',bottom:'12mm',left:'8mm',right:'8mm'} });
+            await page.pdf({
+              path: 'api-docs.pdf',
+              format: 'A4',
+              printBackground: true,
+              margin: {top:'12mm',bottom:'12mm',left:'8mm',right:'8mm'}
+            });
             await browser.close();
           })();
           JS
@@ -106,7 +109,7 @@ jobs:
       - name: Generate Markdown summary (endpoints)
         run: |
           python - << 'PY'
-          import json, textwrap
+          import json
           spec = json.load(open('openapi.json','r',encoding='utf-8'))
           paths = spec.get('paths',{})
           info = spec.get('info',{})
