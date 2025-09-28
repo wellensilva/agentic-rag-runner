@@ -43,3 +43,7 @@ O `guardian_check` bloqueia conteúdos proibidos por palavras-sinal. Amplie com 
 ![smoke](https://github.com/SEU_USUARIO/SEU_REPO/actions/workflows/smoke.yml/badge.svg)
 ![staging](https://github.com/SEU_USUARIO/SEU_REPO/actions/workflows/staging.yml/badge.svg)
 ![agentic-rag](https://github.com/SEU_USUARIO/SEU_REPO/actions/workflows/agentic-rag.yml/badge.svg)
+![smoke](https://github.com/SEU_USUARIO/SEU_REPO/actions/workflows/smoke.yml/badge.svg)
+![staging](https://github.com/SEU_USUARIO/SEU_REPO/actions/workflows/staging.yml/badge.svg)
+![agentic-rag](https://github.com/SEU_USUARIO/SEU_REPO/actions/workflows/agentic-rag.yml/badge.svg)
+![docs](https://github.com/SEU_USUARIO/SEU_REPO/actions/workflows/docs.yml/badge.svg)
