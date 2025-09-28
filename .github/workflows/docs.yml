@@ -17,6 +17,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Guard contra trechos inválidos no app.py
+        run: |
+          set -e
+          test -f app.py
+          if grep -nE '^\s*\*\*\*' app.py; then
+            echo "❌ Encontrado marcador '***' no app.py (cola incompleta)."
+            exit 1
+          fi
+          if grep -nE '^\s*-\s*name:\s' app.py; then
+            echo "❌ Parece que colou trecho de YAML do Actions dentro do app.py."
+            exit 1
+          fi
+          echo "✓ Guard passou"
 
       - name: Ensure app.py present
         run: |
