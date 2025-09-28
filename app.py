@@ -6,7 +6,7 @@ import logging
 from typing import List, Dict, Any, Tuple, Optional
 
 from fastapi import FastAPI, HTTPException, Depends, Header
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -19,10 +19,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 MODEL = os.getenv("LLM_MODEL", "gpt-4.1")
 if not OPENAI_API_KEY:
     raise RuntimeError("Defina OPENAI_API_KEY no ambiente (.env)")
-curl -X POST http://localhost:8000/run \
-  -H "Authorization: Bearer SEU_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"query":"Crie um plano de MVP em 1 página para o projeto Biblioteca Viva.","formato":"texto"}'
+
 # Auth opcional por token (Bearer)
 API_ACCESS_TOKEN = os.getenv("API_ACCESS_TOKEN", "")
 
@@ -88,7 +85,7 @@ class Memory:
 # ============== AUTH (Bearer) ==============
 class _Auth:
     def __call__(self, authorization: Optional[str] = Header(None)):
-        # Se não há token configurado no servidor, mantém endpoints abertos (modo dev).
+        # Se não há token configurado, mantém endpoints abertos (modo dev).
         if not API_ACCESS_TOKEN:
             return True
         if not authorization or not authorization.startswith("Bearer "):
@@ -251,6 +248,24 @@ MEM = Memory()
 # UI estática em /ui (sirva ./static/index.html)
 app.mount("/ui", StaticFiles(directory="static", html=True), name="ui")
 
+# Doc ao vivo via ReDoc
+@app.get("/ui/docs", response_class=HTMLResponse)
+def ui_docs():
+    return """
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>API Docs — Colaborativo IA</title>
+    <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+    <style>body{margin:0;height:100vh}</style>
+  </head>
+  <body>
+    <redoc spec-url='/openapi.json'></redoc>
+  </body>
+</html>
+"""
+
 # Banco CRM em memória (stub)
 CRM_DB: Dict[str, CRMRecord] = {
     "ana-001": CRMRecord(
@@ -368,7 +383,7 @@ def run_pdf(req: RunRequest, _=Depends(auth_required)):
         raise HTTPException(status_code=422, detail="Nenhum conteúdo para gerar PDF.")
     pdf_bytes = make_pdf(title="Resultado do Orquestrador", body=resultado, resumo=resumo)
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
-                             headers={"Content-Disposition": 'attachment; filename="colabIA_resultado.pdf"'})
+                             headers={"Content-Disposition": 'attachment; filename=\"colabIA_resultado.pdf\"'})
 
 # ============== KB (com auth) ==============
 @app.post("/kb_upsert", response_model=KBUpsertResp)
@@ -439,10 +454,4 @@ def eval_run(req: EvalRequest, _=Depends(auth_required)):
         status=status, hits=len(hits), required=req.required, missing=missing,
         prohibited_found=prohibited_found, resultado=data.get("resultado") or "",
         resumo=data.get("resumo") or ""
-       - name: Start API
-     run: |
-       nohup uvicorn app:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
-       echo $! > uv.pid
-       sleep 5
-       echo "---- Primeiras linhas do uvicorn.log ----"
-       head -n 60 uvicorn.log || true
+    )
