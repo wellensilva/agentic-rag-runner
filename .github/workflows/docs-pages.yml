@@ -21,6 +21,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # evita commits com cola acidental dentro do app.py
       - name: Guard contra trechos inválidos no app.py
         run: |
           set -e
@@ -40,7 +41,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Setup Node (para gerar HTML)
+      - name: Setup Node (para gerar HTML/PDF)
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -49,7 +50,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          npm i redoc-cli
+          npm i redoc-cli puppeteer
 
       - name: Inject secrets
         run: |
@@ -58,7 +59,6 @@ jobs:
             exit 1
           fi
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" | tee -a $GITHUB_ENV
-          # token é opcional
           if [ -n "${{ secrets.API_ACCESS_TOKEN }}" ]; then
             echo "API_ACCESS_TOKEN=${{ secrets.API_ACCESS_TOKEN }}" | tee -a $GITHUB_ENV
           fi
@@ -91,11 +91,38 @@ jobs:
           curl -fsS http://127.0.0.1:8000/openapi.json -o openapi.json
           jq .info openapi.json || true
 
-      - name: Build ReDoc (HTML)
+      - name: Gerar HTML (ReDoc)
         run: |
           npx -y redoc-cli bundle openapi.json -o api-docs.html
+          test -s api-docs.html || (echo "❌ Falha ao gerar HTML" && exit 1)
+
+      - name: Gerar PDF (Puppeteer)
+        run: |
+          node - <<'JS'
+          const puppeteer = require('puppeteer');
+          const path = require('path');
+          (async () => {
+            const browser = await puppeteer.launch({args:['--no-sandbox','--disable-setuid-sandbox']});
+            const page = await browser.newPage();
+            const url = 'file://' + path.join(process.cwd(), 'api-docs.html');
+            await page.goto(url, { waitUntil: 'networkidle0' });
+            await page.pdf({
+              path: 'api-docs.pdf',
+              format: 'A4',
+              printBackground: true,
+              margin: {top:'12mm',bottom:'12mm',left:'8mm',right:'8mm'}
+            });
+            await browser.close();
+          })();
+          JS
+          test -s api-docs.pdf || (echo "❌ Falha ao gerar PDF" && exit 1)
+
+      - name: Preparar pasta public (HTML + PDF)
+        run: |
           mkdir -p public
           cp api-docs.html public/index.html
+          cp api-docs.pdf public/api-docs.pdf
+          echo "✓ public pronta"
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
