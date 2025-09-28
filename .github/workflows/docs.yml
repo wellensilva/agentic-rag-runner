@@ -47,16 +47,17 @@ jobs:
           sleep 2
           tail -n +1 uvicorn.log | sed -n '1,80p' || true
 
-      - name: Wait /health
+           - name: Wait /health
         run: |
           set +e
           for i in $(seq 1 60); do
             curl -fsS http://127.0.0.1:8000/health && exit 0
-            sleep 1
+            sleep 2
+            echo "tentativa $i..."
           done
-          echo "❌ Healthcheck falhou"
-          echo "---- uvicorn.log (FULL) ----"
-          cat uvicorn.log || true
+          echo "❌ Healthcheck falhou após 120s"
+          echo "---- uvicorn.log (últimas 100 linhas) ----"
+          tail -n 100 uvicorn.log || true
           exit 1
 
       - name: Download OpenAPI JSON
