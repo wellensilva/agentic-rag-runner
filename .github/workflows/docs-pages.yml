@@ -5,15 +5,14 @@ on:
   push:
     branches: [ "main" ]
 
+# permissões por padrão (algumas empresas exigem aqui; de qualquer forma manter)
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       PYTHONUNBUFFERED: "1"
 
@@ -21,19 +20,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # evita commits com cola acidental dentro do app.py
       - name: Guard contra trechos inválidos no app.py
         run: |
           set -e
           test -f app.py
-          if grep -nE '^\s*\*\*\*' app.py; then
-            echo "❌ Encontrado marcador '***' no app.py (cola incompleta)."
-            exit 1
-          fi
-          if grep -nE '^\s*-\s*name:\s' app.py; then
-            echo "❌ Parece que colou trecho de YAML do Actions dentro do app.py."
-            exit 1
-          fi
+          if grep -nE '^\s*\*\*\*' app.py; then echo "❌ '***' no app.py"; exit 1; fi
+          if grep -nE '^\s*-\s*name:\s' app.py; then echo "❌ YAML colado no app.py"; exit 1; fi
           echo "✓ Guard passou"
 
       - name: Setup Python
@@ -41,7 +33,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Setup Node (para gerar HTML/PDF)
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -58,9 +50,9 @@ jobs:
             echo "❌ OPENAI_API_KEY não configurada (Settings → Secrets → Actions)."
             exit 1
           fi
-          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" | tee -a $GITHUB_ENV
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
           if [ -n "${{ secrets.API_ACCESS_TOKEN }}" ]; then
-            echo "API_ACCESS_TOKEN=${{ secrets.API_ACCESS_TOKEN }}" | tee -a $GITHUB_ENV
+            echo "API_ACCESS_TOKEN=${{ secrets.API_ACCESS_TOKEN }}" >> $GITHUB_ENV
           fi
 
       - name: Start API
@@ -76,15 +68,8 @@ jobs:
           for i in $(seq 1 60); do
             curl -fsS http://127.0.0.1:8000/health && exit 0
             sleep 2
-            if [ $((i % 5)) -eq 0 ]; then
-              echo "tentativa $i..."
-              tail -n 60 uvicorn.log || true
-            fi
           done
-          echo "❌ Healthcheck falhou"
-          echo "---- uvicorn.log (FULL) ----"
-          cat uvicorn.log || true
-          exit 1
+          echo "❌ Health falhou"; tail -n 120 uvicorn.log || true; exit 1
 
       - name: Download OpenAPI
         run: |
@@ -104,27 +89,24 @@ jobs:
           (async () => {
             const browser = await puppeteer.launch({args:['--no-sandbox','--disable-setuid-sandbox']});
             const page = await browser.newPage();
-            const url = 'file://' + path.join(process.cwd(), 'api-docs.html');
-            await page.goto(url, { waitUntil: 'networkidle0' });
-            await page.pdf({
-              path: 'api-docs.pdf',
-              format: 'A4',
-              printBackground: true,
-              margin: {top:'12mm',bottom:'12mm',left:'8mm',right:'8mm'}
-            });
+            await page.goto('file://' + path.join(process.cwd(),'api-docs.html'), {waitUntil:'networkidle0'});
+            await page.pdf({path:'api-docs.pdf',format:'A4',printBackground:true,margin:{top:'12mm',bottom:'12mm',left:'8mm',right:'8mm'}});
             await browser.close();
           })();
           JS
-          test -s api-docs.pdf || (echo "❌ Falha ao gerar PDF" && exit 1)
+          test -s api-docs.pdf || (echo "❌ Falha PDF" && exit 1)
 
-      - name: Preparar pasta public (HTML + PDF)
+      - name: Preparar pasta public
         run: |
           mkdir -p public
           cp api-docs.html public/index.html
           cp api-docs.pdf public/api-docs.pdf
-          echo "✓ public pronta"
 
-      - name: Upload GitHub Pages artifact
+      # 👉 configuração necessária para Pages (evita o 404)
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact para Pages
         uses: actions/upload-pages-artifact@v3
         with:
           path: public
@@ -132,6 +114,10 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    # permissões específicas para publicar no Pages
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
