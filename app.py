@@ -439,4 +439,10 @@ def eval_run(req: EvalRequest, _=Depends(auth_required)):
         status=status, hits=len(hits), required=req.required, missing=missing,
         prohibited_found=prohibited_found, resultado=data.get("resultado") or "",
         resumo=data.get("resumo") or ""
-    )
+       - name: Start API
+     run: |
+       nohup uvicorn app:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
+       echo $! > uv.pid
+       sleep 5
+       echo "---- Primeiras linhas do uvicorn.log ----"
+       head -n 60 uvicorn.log || true
