@@ -39,6 +39,19 @@ jobs:
           pip install -r requirements.txt
           # para converter HTML -> PDF via Chrome headless
           npm i redoc-cli puppeteer
+      - name: Inject secrets
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          API_ACCESS_TOKEN: ${{ secrets.API_ACCESS_TOKEN }}
+        run: |
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "❌ OPENAI_API_KEY não configurada."
+            exit 1
+          fi
+          echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> $GITHUB_ENV
+          if [ -n "${API_ACCESS_TOKEN}" ]; then
+            echo "API_ACCESS_TOKEN=${API_ACCESS_TOKEN}" >> $GITHUB_ENV
+          fi
 
       - name: Start API
         run: |
