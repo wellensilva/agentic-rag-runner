@@ -454,5 +454,4 @@ def eval_run(req: EvalRequest, _=Depends(auth_required)):
         status=status, hits=len(hits), required=req.required, missing=missing,
         prohibited_found=prohibited_found, resultado=data.get("resultado") or "",
         resumo=data.get("resumo") or ""
-        
-        
+    )
